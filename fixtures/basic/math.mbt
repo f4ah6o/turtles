@@ -17,3 +17,8 @@ pub fn both(a : Bool, b : Bool) -> Bool {
 pub fn enabled() -> Bool {
   true
 }
+
+///|
+pub fn choose(flag : Bool) -> Int {
+  if flag { 1 } else { 2 }
+}
