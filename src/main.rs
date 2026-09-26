@@ -1,5 +1,6 @@
 use std::env;
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,7 @@ struct Config {
     timeout: Duration,
     list: bool,
     file_filter: Option<String>,
+    json_report: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +87,13 @@ enum Outcome {
     Unviable,
 }
 
+#[derive(Debug, Clone)]
+struct MutationResult {
+    mutation: Mutation,
+    outcome: Outcome,
+    duration: Duration,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
@@ -125,8 +134,10 @@ fn run() -> Result<ExitCode, String> {
     }
 
     print!("Baseline: moon test ... ");
+    let baseline_started = Instant::now();
     let baseline = run_command(&root, "moon", &["test"], config.timeout)
         .map_err(|e| format!("failed to run baseline: {e}"))?;
+    let baseline_duration = baseline_started.elapsed();
     match baseline {
         CommandResult::Success => println!("ok"),
         CommandResult::Failure => {
@@ -153,8 +164,10 @@ fn run() -> Result<ExitCode, String> {
         fs::write(&target, mutated)
             .map_err(|e| format!("failed to write {}: {e}", target.display()))?;
 
+        let mutant_started = Instant::now();
         let outcome = classify_mutant(workspace.path(), config.timeout)
             .map_err(|e| format!("failed while testing mutant: {e}"))?;
+        let mutant_duration = mutant_started.elapsed();
 
         fs::write(&target, original_source)
             .map_err(|e| format!("failed to restore {}: {e}", target.display()))?;
@@ -166,13 +179,29 @@ fn run() -> Result<ExitCode, String> {
             outcome_name(outcome),
             describe_mutation(mutation)
         );
-        results.push(outcome);
+        results.push(MutationResult {
+            mutation: mutation.clone(),
+            outcome,
+            duration: mutant_duration,
+        });
     }
 
-    let killed = results.iter().filter(|&&x| x == Outcome::Killed).count();
-    let survived = results.iter().filter(|&&x| x == Outcome::Survived).count();
-    let timeout = results.iter().filter(|&&x| x == Outcome::Timeout).count();
-    let unviable = results.iter().filter(|&&x| x == Outcome::Unviable).count();
+    let killed = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Killed)
+        .count();
+    let survived = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Survived)
+        .count();
+    let timeout = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Timeout)
+        .count();
+    let unviable = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Unviable)
+        .count();
     let viable = killed + survived + timeout;
     let score = if viable == 0 {
         100.0
@@ -188,6 +217,11 @@ fn run() -> Result<ExitCode, String> {
     println!("  unviable:  {unviable}");
     println!("  score:     {score:.1}%");
 
+    if let Some(path) = &config.json_report {
+        write_json_report(path, &root, baseline_duration, &results, score)?;
+        println!("  json:      {}", path.display());
+    }
+
     if survived > 0 || timeout > 0 {
         Ok(ExitCode::from(1))
     } else {
@@ -200,6 +234,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Config, String> {
     let mut timeout = Duration::from_secs(60);
     let mut list = false;
     let mut file_filter = None;
+    let mut json_report = None;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -212,6 +247,7 @@ Options:\n\
   -d, --dir <PATH>       MoonBit module directory (default: .)\n\
       --timeout <SECS>   Per-command timeout (default: 60)\n\
       --file <TEXT>      Only mutate source paths containing TEXT\n\
+      --json <PATH>      Write a JSON report to PATH\n\
       --list             List mutations without running tests\n\
   -h, --help             Print help\n"
                 );
@@ -234,6 +270,9 @@ Options:\n\
             "--file" => {
                 file_filter = Some(args.next().ok_or("--file requires text")?);
             }
+            "--json" => {
+                json_report = Some(PathBuf::from(args.next().ok_or("--json requires a path")?));
+            }
             "--list" => list = true,
             other => return Err(format!("unknown argument: {other} (try --help)")),
         }
@@ -244,6 +283,7 @@ Options:\n\
         timeout,
         list,
         file_filter,
+        json_report,
     })
 }
 
@@ -758,6 +798,105 @@ fn run_command(
     }
 }
 
+fn write_json_report(
+    path: &Path,
+    root: &Path,
+    baseline_duration: Duration,
+    results: &[MutationResult],
+    score: f64,
+) -> Result<(), String> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+
+    let killed = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Killed)
+        .count();
+    let survived = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Survived)
+        .count();
+    let timeout = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Timeout)
+        .count();
+    let unviable = results
+        .iter()
+        .filter(|result| result.outcome == Outcome::Unviable)
+        .count();
+
+    let mut output = String::new();
+    writeln!(output, "{{").unwrap();
+    writeln!(output, "  \"schema\": 1,").unwrap();
+    writeln!(
+        output,
+        "  \"module\": \"{}\",",
+        json_escape(&root.to_string_lossy())
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "  \"baseline_duration_ms\": {},",
+        baseline_duration.as_millis()
+    )
+    .unwrap();
+    writeln!(output, "  \"mutants\": [").unwrap();
+
+    for (index, result) in results.iter().enumerate() {
+        let comma = if index + 1 == results.len() { "" } else { "," };
+        writeln!(
+            output,
+            "    {{\"path\":\"{}\",\"line\":{},\"column\":{},\"original\":\"{}\",\"replacement\":\"{}\",\"outcome\":\"{}\",\"duration_ms\":{}}}{}",
+            json_escape(&result.mutation.path.to_string_lossy()),
+            result.mutation.line,
+            result.mutation.column,
+            json_escape(result.mutation.original),
+            json_escape(result.mutation.replacement),
+            outcome_name(result.outcome),
+            result.duration.as_millis(),
+            comma
+        )
+        .unwrap();
+    }
+
+    writeln!(output, "  ],").unwrap();
+    writeln!(output, "  \"summary\": {{").unwrap();
+    writeln!(output, "    \"killed\": {killed},").unwrap();
+    writeln!(output, "    \"survived\": {survived},").unwrap();
+    writeln!(output, "    \"timeout\": {timeout},").unwrap();
+    writeln!(output, "    \"unviable\": {unviable},").unwrap();
+    writeln!(output, "    \"score\": {score:.1}").unwrap();
+    writeln!(output, "  }}").unwrap();
+    writeln!(output, "}}").unwrap();
+
+    fs::write(path, output).map_err(|e| format!("failed to write {}: {e}", path.display()))
+}
+
+fn json_escape(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0c}' => output.push_str("\\f"),
+            ch if ch <= '\u{1f}' => {
+                write!(output, "\\u{:04x}", ch as u32).unwrap();
+            }
+            ch => output.push(ch),
+        }
+    }
+    output
+}
+
 fn describe_mutation(mutation: &Mutation) -> String {
     format!(
         "{}:{}:{}: {} -> {}",
@@ -896,6 +1035,14 @@ operators = ["comparison", "literal"]
     fn project_config_rejects_unknown_operator_group() {
         let error = parse_project_config(r#"operators = ["mystery"]"#).unwrap_err();
         assert!(error.contains("unknown operator group"));
+    }
+
+    #[test]
+    fn json_escape_handles_quotes_backslashes_and_controls() {
+        assert_eq!(
+            json_escape("quote=\" slash=\\\nnext\t"),
+            "quote=\\\" slash=\\\\\\nnext\\t"
+        );
     }
 
     #[test]
