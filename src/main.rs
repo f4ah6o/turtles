@@ -253,8 +253,8 @@ fn load_project_config(root: &Path) -> Result<ProjectConfig, String> {
         return Ok(ProjectConfig::default());
     }
 
-    let source = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let source =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
     parse_project_config(&source).map_err(|e| format!("invalid {}: {e}", path.display()))
 }
 
@@ -353,9 +353,11 @@ impl<'a> ConfigParser<'a> {
 
     fn parse_key(&mut self) -> Result<String, String> {
         let start = self.position;
-        while self.bytes.get(self.position).is_some_and(|byte| {
-            byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-'
-        }) {
+        while self
+            .bytes
+            .get(self.position)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-')
+        {
             self.position += 1;
         }
         if start == self.position {
