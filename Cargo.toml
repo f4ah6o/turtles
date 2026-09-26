@@ -1,0 +1,18 @@
+[package]
+name = "turtles"
+version = "0.1.0"
+edition = "2024"
+description = "Mutation testing for MoonBit projects"
+license = "MIT"
+repository = "https://github.com/f4ah6o/turtles"
+readme = "README.md"
+keywords = ["moonbit", "mutation-testing", "testing"]
+categories = ["development-tools::testing"]
+
+[[bin]]
+name = "turtles"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+lto = "thin"
