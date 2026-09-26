@@ -85,7 +85,11 @@ async fn discover_mutations(
 }
 
 ///|
-async fn copy_tree(root : String, current : String, destination : String) -> Unit {
+async fn copy_tree(
+  root : String,
+  current : String,
+  destination : String,
+) -> Unit {
   let names = @fs.readdir(current, include_hidden=true, sort=true)
   for name in names {
     let source = path_join(current, name)
