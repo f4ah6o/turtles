@@ -2,9 +2,9 @@
 
 ## Status
 
-AST-aware mutation is feasible, but turtles should not couple its Rust core directly to MoonBit parser internals yet.
+`turtles` is now implemented entirely in MoonBit, so AST-aware mutation no longer needs a cross-language adapter.
 
-The official `moonbitlang/parser` module currently exposes:
+The official `moonbitlang/parser` module exposes:
 
 - `parse_string` and `parse_file`
 - public MoonBit AST types
@@ -12,50 +12,33 @@ The official `moonbitlang/parser` module currently exposes:
 - source `Location` values
 - visitor APIs for traversing and transforming syntax trees
 
-This is enough structure to support substantially safer mutation discovery than continuing to grow lexical special cases.
+This is enough structure to replace the current lexical candidate discovery with syntax-aware mutation discovery.
 
 ## Stability constraint
 
-The parser repository explicitly describes the module as highly experimental and unstable. It is implemented as a MoonBit package, while turtles is currently a standalone Rust binary.
+The parser repository explicitly describes the module as highly experimental and unstable. That remains the main integration risk even though turtles and the parser now share the same implementation language.
 
-For that reason, the next AST step should use a versioned adapter boundary rather than importing or duplicating unstable parser internals in Rust.
+The parser dependency should therefore be pinned, and its unstable API should be isolated behind a small internal turtles package rather than used throughout the runner.
 
-## Proposed adapter
+## Proposed MoonBit boundary
 
-A small MoonBit helper can depend on a pinned `moonbitlang/parser` version and expose a stable protocol to turtles.
+A future internal package such as `internal/syntax` should own all direct `moonbitlang/parser` usage and expose turtles-owned mutation candidates:
 
-Suggested request:
-
-```json
-{
-  "protocol": 1,
-  "path": "src/math.mbt",
-  "source": "..."
+```moonbit
+struct MutationCandidate {
+  start : Int
+  end : Int
+  line : Int
+  column : Int
+  original : String
+  replacement : String
+  kind : String
 }
 ```
 
-Suggested response:
+The rest of turtles should continue to own:
 
-```json
-{
-  "protocol": 1,
-  "mutants": [
-    {
-      "kind": "binary-operator",
-      "start": 42,
-      "end": 43,
-      "line": 3,
-      "column": 5,
-      "original": "+",
-      "replacement": "-"
-    }
-  ]
-}
-```
-
-The Rust side should continue to own:
-
-- module discovery
+- module and source discovery
 - include/exclude configuration
 - temporary-workspace isolation
 - mutation application
@@ -63,17 +46,18 @@ The Rust side should continue to own:
 - timeout handling and outcome classification
 - reporting
 
-The MoonBit adapter should own only syntax-aware candidate discovery.
+This keeps parser churn local without introducing another language, process, or serialization protocol.
 
 ## Migration plan
 
-1. Keep the current lexical scanner as the default/fallback while the adapter is experimental.
-2. Add an adapter fixture covering nested expressions, strings/comments, conditionals, returns, and function bodies.
-3. Pin the parser package version and protocol version independently.
-4. Compare lexical and AST candidate sets on the existing fixture before switching defaults.
-5. Add new structural mutations only through the AST path once source locations are proven stable enough.
-6. Preserve `UNVIABLE` classification even for AST-produced candidates; syntax awareness does not guarantee type-correct mutations.
+1. Pin a known-good `moonbitlang/parser` version.
+2. Add direct parser-backed discovery for the existing token mutations.
+3. Compare parser-backed and lexical candidate sets on the real fixture and dedicated syntax fixtures.
+4. Keep the lexical scanner only as a temporary compatibility fallback while parity is measured.
+5. Switch the default to parser-backed discovery after location/offset handling is proven stable.
+6. Add structural mutations through the AST path: function-body replacement, return-value replacement, conditional mutation, numeric constants, and call deletion/replacement.
+7. Preserve `UNVIABLE` classification even for AST-produced candidates; syntax awareness does not guarantee type-correct mutations.
 
 ## Decision
 
-Do not add more ad-hoc lexical grammar rules for structural mutations. Small token replacements may remain in the fallback scanner, but function-body replacement, return-value replacement, conditional mutation, numeric constants, and call deletion/replacement should target the AST adapter.
+Do not grow the lexical scanner with structural MoonBit grammar rules. The MoonBit-only rewrite makes direct parser integration the preferred next architecture: a pinned parser dependency behind a small internal MoonBit boundary.
