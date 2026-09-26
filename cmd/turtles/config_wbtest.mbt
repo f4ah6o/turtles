@@ -12,8 +12,8 @@ test "parses turtles config" {
       #|
     ),
   )
-  inspect(config.include, content="[src/, lib/]")
-  inspect(config.exclude, content="[generated/, vendor/]")
+  json_inspect(config.include_patterns, content=["src/", "lib/"])
+  json_inspect(config.exclude_patterns, content=["generated/", "vendor/"])
   inspect(config.path_enabled("src/math.mbt"), content="true")
   inspect(config.path_enabled("src/generated/math.mbt"), content="false")
   inspect(config.operator_enabled(Comparison), content="true")
