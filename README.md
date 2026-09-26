@@ -55,6 +55,24 @@ turtles [OPTIONS]
 turtles --list
 ```
 
+## Configuration
+
+If `turtles.toml` exists in the MoonBit module root, turtles reads mutation selection from it before scanning sources.
+
+```toml
+include = ["src/", "lib/"]
+exclude = ["generated/", "vendor/"]
+operators = ["comparison", "boolean", "arithmetic", "literal"]
+```
+
+- `include`: optional path substrings; when non-empty, at least one must match the normalized relative source path.
+- `exclude`: optional path substrings; matching sources are skipped.
+- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, and `literal`.
+- CLI `--file` remains an additional filter on top of `turtles.toml`.
+- Test files remain excluded by default and cannot be enabled through this configuration.
+
+The current parser intentionally supports a small TOML-compatible subset: top-level arrays of double-quoted strings, comments, trailing commas, and multiline arrays. Unknown keys and operator groups are rejected instead of silently ignored.
+
 ## Result model
 
 For every viable mutant:
