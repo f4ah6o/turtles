@@ -18,7 +18,7 @@ fn print_help() -> Unit {
 }
 
 ///|
-fn parse_args() -> Config {
+fn parse_args() -> Config raise {
   let args = @env.args()
   let mut dir = "."
   let mut timeout_ms = 60000
@@ -72,7 +72,7 @@ fn config_is_space(byte : Byte) -> Bool {
 
 ///|
 fn config_skip_space_and_comments(bytes : Bytes, position : Ref[Int]) -> Unit {
-  loop {
+  while true {
     while position.val < bytes.length() && config_is_space(bytes[position.val]) {
       position.val = position.val + 1
     }
@@ -113,7 +113,7 @@ fn config_consume(bytes : Bytes, position : Ref[Int], expected : Byte) -> Bool {
 }
 
 ///|
-fn config_expect(bytes : Bytes, position : Ref[Int], expected : Byte) -> Unit {
+fn config_expect(bytes : Bytes, position : Ref[Int], expected : Byte) -> Unit raise {
   guard config_consume(bytes, position, expected) else {
     fail(
       config_error(bytes, position.val, "expected configuration punctuation"),
@@ -122,7 +122,7 @@ fn config_expect(bytes : Bytes, position : Ref[Int], expected : Byte) -> Unit {
 }
 
 ///|
-fn config_parse_key(bytes : Bytes, position : Ref[Int]) -> String {
+fn config_parse_key(bytes : Bytes, position : Ref[Int]) -> String raise {
   let start = position.val
   while position.val < bytes.length() {
     let byte = bytes[position.val]
@@ -143,7 +143,7 @@ fn config_parse_key(bytes : Bytes, position : Ref[Int]) -> String {
 }
 
 ///|
-fn config_parse_string(bytes : Bytes, position : Ref[Int]) -> String {
+fn config_parse_string(bytes : Bytes, position : Ref[Int]) -> String raise {
   config_expect(bytes, position, b'"')
   let output = @buffer.Buffer()
   while position.val < bytes.length() {
@@ -185,10 +185,10 @@ fn config_parse_string(bytes : Bytes, position : Ref[Int]) -> String {
 fn config_parse_string_array(
   bytes : Bytes,
   position : Ref[Int],
-) -> Array[String] {
+) -> Array[String] raise {
   config_expect(bytes, position, b'[')
   let values : Array[String] = []
-  loop {
+  while true {
     config_skip_space_and_comments(bytes, position)
     if config_consume(bytes, position, b']') {
       return values
@@ -206,16 +206,16 @@ fn config_parse_string_array(
 }
 
 ///|
-fn parse_project_config(source : String) -> ProjectConfig {
+fn parse_project_config(source : String) -> ProjectConfig raise {
   let bytes = @utf8.encode(source)
   let position = Ref(0)
-  let include : Array[String] = []
-  let exclude : Array[String] = []
+  let include_patterns : Array[String] = []
+  let exclude_patterns : Array[String] = []
   let operators : Array[OperatorGroup] = []
   let mut operators_set = false
   let mut include_set = false
   let mut exclude_set = false
-  loop {
+  while true {
     config_skip_space_and_comments(bytes, position)
     if position.val >= bytes.length() {
       break
@@ -232,7 +232,7 @@ fn parse_project_config(source : String) -> ProjectConfig {
         }
         include_set = true
         for value in values {
-          include.push(value)
+          include_patterns.push(value)
         }
       }
       "exclude" => {
@@ -241,7 +241,7 @@ fn parse_project_config(source : String) -> ProjectConfig {
         }
         exclude_set = true
         for value in values {
-          exclude.push(value)
+          exclude_patterns.push(value)
         }
       }
       "operators" => {
@@ -264,14 +264,14 @@ fn parse_project_config(source : String) -> ProjectConfig {
     }
   }
   {
-    include,
-    exclude,
+    include_patterns,
+    exclude_patterns,
     operators: if operators_set { Some(operators) } else { None },
   }
 }
 
 ///|
-async fn load_project_config(root : String) -> ProjectConfig {
+async fn load_project_config(root : String) -> ProjectConfig raise {
   let path = @path.Path(root).join(Path("turtles.toml")).to_string()
   if !@fs.exists(path) {
     return default_project_config()
