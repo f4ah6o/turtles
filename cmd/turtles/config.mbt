@@ -115,15 +115,14 @@ fn config_consume(bytes : Bytes, position : Ref[Int], expected : Byte) -> Bool {
 ///|
 fn config_expect(bytes : Bytes, position : Ref[Int], expected : Byte) -> Unit {
   guard config_consume(bytes, position, expected) else {
-    fail(config_error(bytes, position.val, "expected configuration punctuation"))
+    fail(
+      config_error(bytes, position.val, "expected configuration punctuation"),
+    )
   }
 }
 
 ///|
-fn config_parse_key(
-  bytes : Bytes,
-  position : Ref[Int],
-) -> String {
+fn config_parse_key(bytes : Bytes, position : Ref[Int]) -> String {
   let start = position.val
   while position.val < bytes.length() {
     let byte = bytes[position.val]
