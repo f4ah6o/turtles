@@ -32,7 +32,7 @@ async fn write_json_report(
   baseline_duration_ms : Int64,
   results : Array[MutationResult],
   score : Double,
-) -> Unit {
+) -> Unit raise {
   let mutants : Array[JsonMutation] = []
   for result in results {
     mutants.push({
@@ -48,7 +48,7 @@ async fn write_json_report(
   let counts = count_outcomes(results)
   let report : JsonReport = {
     schema: 1,
-    module: root,
+    module_path: root,
     baseline_duration_ms,
     mutants,
     summary: {
