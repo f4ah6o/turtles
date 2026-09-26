@@ -303,7 +303,7 @@ fn scan_source(path: &Path, source: &str) -> Vec<Mutation> {
                 continue;
             }
             if (original == "true" || original == "false")
-                && (!word_boundary(bytes, i) || !word_boundary(bytes, i + op.len()))
+                && (!word_start_boundary(bytes, i) || !word_end_boundary(bytes, i + op.len()))
             {
                 continue;
             }
@@ -344,11 +344,12 @@ fn is_syntax_punctuation(bytes: &[u8], i: usize, token: &str) -> bool {
     }
 }
 
-fn word_boundary(bytes: &[u8], index: usize) -> bool {
-    if index == 0 || index >= bytes.len() {
-        return true;
-    }
-    !is_ident_byte(bytes[index - 1]) && !is_ident_byte(bytes[index])
+fn word_start_boundary(bytes: &[u8], index: usize) -> bool {
+    index == 0 || !is_ident_byte(bytes[index - 1])
+}
+
+fn word_end_boundary(bytes: &[u8], index: usize) -> bool {
+    index >= bytes.len() || !is_ident_byte(bytes[index])
 }
 
 fn is_ident_byte(byte: u8) -> bool {
@@ -591,7 +592,7 @@ fn f(a : Int, b : Int) -> Bool {
         let mutations = scan_source(Path::new("sample.mbt"), source);
         assert_eq!(mutations.len(), 1);
         assert_eq!(mutations[0].original, "-");
-        assert_eq!(mutations[0].column, 24);
+        assert_eq!(mutations[0].column, 26);
     }
 
     #[test]
