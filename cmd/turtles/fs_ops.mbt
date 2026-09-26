@@ -24,7 +24,7 @@ fn is_test_source(name : String) -> Bool {
 }
 
 ///|
-async fn ensure_moonbit_module(root : String) -> Unit {
+async fn ensure_moonbit_module(root : String) -> Unit raise {
   let old_manifest = path_join(root, "moon.mod")
   let json_manifest = path_join(root, "moon.mod.json")
   guard @fs.exists(old_manifest) || @fs.exists(json_manifest) else {
@@ -39,7 +39,7 @@ async fn collect_moonbit_files(
   file_filter : String?,
   project_config : ProjectConfig,
   output : Array[String],
-) -> Unit {
+) -> Unit raise {
   let names = @fs.readdir(dir, include_hidden=true, sort=true)
   for name in names {
     let full = path_join(dir, name)
@@ -70,7 +70,7 @@ async fn discover_mutations(
   root : String,
   file_filter : String?,
   project_config : ProjectConfig,
-) -> Array[Mutation] {
+) -> Array[Mutation] raise {
   let files : Array[String] = []
   collect_moonbit_files(root, root, file_filter, project_config, files)
   let mutations : Array[Mutation] = []
@@ -89,7 +89,7 @@ async fn copy_tree(
   root : String,
   current : String,
   destination : String,
-) -> Unit {
+) -> Unit raise {
   let names = @fs.readdir(current, include_hidden=true, sort=true)
   for name in names {
     let source = path_join(current, name)
