@@ -208,6 +208,8 @@ fn config_parse_string_array(
     fail(
       config_error(bytes, position.val, "expected ',' or ']' after array item"),
     )
+  } nobreak {
+    values
   }
 }
 
