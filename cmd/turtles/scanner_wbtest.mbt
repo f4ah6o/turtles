@@ -181,13 +181,7 @@ test "mutation identity is explicitly deduplicated" {
 
 ///|
 test "parser failure does not fall back to lexical scanning" {
-  try
-    scan_source(
-      "broken.mbt",
-      "fn broken(",
-      default_project_config(),
-    )
-  catch {
+  try scan_source("broken.mbt", "fn broken(", default_project_config()) catch {
     _ => ()
   } noraise {
     _ => fail("parser failure unexpectedly produced mutation candidates")
