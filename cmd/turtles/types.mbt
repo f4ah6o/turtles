@@ -89,6 +89,7 @@ struct Mutation {
   end : Int
   line : Int
   column : Int
+  group : OperatorGroup
   original : String
   replacement : String
 } derive(Eq)
