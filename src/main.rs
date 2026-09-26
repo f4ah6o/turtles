@@ -386,13 +386,7 @@ fn advance_block_comment(bytes: &[u8], i: &mut usize, line: &mut usize, column: 
     }
 }
 
-fn advance_quoted(
-    bytes: &[u8],
-    i: &mut usize,
-    line: &mut usize,
-    column: &mut usize,
-    quote: u8,
-) {
+fn advance_quoted(bytes: &[u8], i: &mut usize, line: &mut usize, column: &mut usize, quote: u8) {
     advance_plain(bytes, i, line, column, 1);
     while *i < bytes.len() {
         if bytes[*i] == b'\\' {
@@ -408,13 +402,7 @@ fn advance_quoted(
     }
 }
 
-fn advance_plain(
-    bytes: &[u8],
-    i: &mut usize,
-    line: &mut usize,
-    column: &mut usize,
-    width: usize,
-) {
+fn advance_plain(bytes: &[u8], i: &mut usize, line: &mut usize, column: &mut usize, width: usize) {
     for _ in 0..width {
         if *i >= bytes.len() {
             return;
@@ -461,7 +449,12 @@ enum CommandResult {
     Timeout,
 }
 
-fn run_command(root: &Path, program: &str, args: &[&str], timeout: Duration) -> io::Result<CommandResult> {
+fn run_command(
+    root: &Path,
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> io::Result<CommandResult> {
     let mut child = Command::new(program)
         .args(args)
         .current_dir(root)
