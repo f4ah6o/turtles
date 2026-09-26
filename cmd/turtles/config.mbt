@@ -1,17 +1,19 @@
 ///|
 fn print_help() -> Unit {
   println(
-    #|turtles - mutation testing for MoonBit
-    #|
-    #|Usage: turtles [OPTIONS]
-    #|
-    #|Options:
-    #|  -d, --dir <PATH>       MoonBit module directory (default: .)
-    #|      --timeout <SECS>   Per-command timeout (default: 60)
-    #|      --file <TEXT>      Only mutate source paths containing TEXT
-    #|      --json <PATH>      Write a JSON report to PATH
-    #|      --list             List mutations without running tests
-    #|  -h, --help             Print help
+    (
+      #|turtles - mutation testing for MoonBit
+      #|
+      #|Usage: turtles [OPTIONS]
+      #|
+      #|Options:
+      #|  -d, --dir <PATH>       MoonBit module directory (default: .)
+      #|      --timeout <SECS>   Per-command timeout (default: 60)
+      #|      --file <TEXT>      Only mutate source paths containing TEXT
+      #|      --json <PATH>      Write a JSON report to PATH
+      #|      --list             List mutations without running tests
+      #|  -h, --help             Print help
+    ),
   )
 }
 
@@ -32,36 +34,26 @@ fn parse_args() -> Config {
         @sys.exit(0)
       }
       "-d" | "--dir" => {
-        guard i + 1 < args.length() else {
-          fail("--dir requires a path")
-        }
+        guard i + 1 < args.length() else { fail("--dir requires a path") }
         i = i + 1
         dir = args[i]
       }
       "--timeout" => {
-        guard i + 1 < args.length() else {
-          fail("--timeout requires seconds")
-        }
+        guard i + 1 < args.length() else { fail("--timeout requires seconds") }
         i = i + 1
         let seconds = @string.parse_int(args[i]) catch {
           _ => fail("invalid timeout: \{args[i]}")
         }
-        guard seconds > 0 else {
-          fail("--timeout must be greater than zero")
-        }
+        guard seconds > 0 else { fail("--timeout must be greater than zero") }
         timeout_ms = seconds * 1000
       }
       "--file" => {
-        guard i + 1 < args.length() else {
-          fail("--file requires text")
-        }
+        guard i + 1 < args.length() else { fail("--file requires text") }
         i = i + 1
         file_filter = Some(args[i])
       }
       "--json" => {
-        guard i + 1 < args.length() else {
-          fail("--json requires a path")
-        }
+        guard i + 1 < args.length() else { fail("--json requires a path") }
         i = i + 1
         json_report = Some(args[i])
       }
@@ -70,7 +62,7 @@ fn parse_args() -> Config {
     }
     i = i + 1
   }
-  { dir, timeout_ms, list, file_filter, json_report }
+  { dir, timeout_ms, list, file_filter, json_report, }
 }
 
 ///|
@@ -123,12 +115,15 @@ fn config_consume(bytes : Bytes, position : Ref[Int], expected : Byte) -> Bool {
 ///|
 fn config_expect(bytes : Bytes, position : Ref[Int], expected : Byte) -> Unit {
   guard config_consume(bytes, position, expected) else {
-    fail(config_error(bytes, position.val, "expected '\{expected.to_char()}'"))
+    fail(config_error(bytes, position.val, "expected configuration punctuation"))
   }
 }
 
 ///|
-fn config_parse_key(source : String, bytes : Bytes, position : Ref[Int]) -> String {
+fn config_parse_key(
+  bytes : Bytes,
+  position : Ref[Int],
+) -> String {
   let start = position.val
   while position.val < bytes.length() {
     let byte = bytes[position.val]
@@ -226,7 +221,7 @@ fn parse_project_config(source : String) -> ProjectConfig {
     if position.val >= bytes.length() {
       break
     }
-    let key = config_parse_key(source, bytes, position)
+    let key = config_parse_key(bytes, position)
     config_skip_space_and_comments(bytes, position)
     config_expect(bytes, position, b'=')
     config_skip_space_and_comments(bytes, position)
