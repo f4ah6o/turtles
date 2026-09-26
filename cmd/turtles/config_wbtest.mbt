@@ -1,14 +1,16 @@
 ///|
 test "parses turtles config" {
   let config = parse_project_config(
-    #|# paths
-    #|include = [
-    #|  "src/",
-    #|  "lib/",
-    #|]
-    #|exclude = ["generated/", "vendor/"]
-    #|operators = ["comparison", "literal"]
-    #|
+    (
+      #|# paths
+      #|include = [
+      #|  "src/",
+      #|  "lib/",
+      #|]
+      #|exclude = ["generated/", "vendor/"]
+      #|operators = ["comparison", "literal"]
+      #|
+    ),
   )
   inspect(config.include, content="[src/, lib/]")
   inspect(config.exclude, content="[generated/, vendor/]")
@@ -20,7 +22,16 @@ test "parses turtles config" {
 
 ///|
 test "operator aliases parse" {
-  inspect(operator_group_from_string("comparisons") == Comparison, content="true")
-  inspect(operator_group_from_string("boolean-logic") == Boolean, content="true")
-  inspect(operator_group_from_string("boolean-literals") == Literal, content="true")
+  inspect(
+    operator_group_from_string("comparisons") == Comparison,
+    content="true",
+  )
+  inspect(
+    operator_group_from_string("boolean-logic") == Boolean,
+    content="true",
+  )
+  inspect(
+    operator_group_from_string("boolean-literals") == Literal,
+    content="true",
+  )
 }
