@@ -7,7 +7,7 @@ enum OperatorGroup {
 } derive(Eq)
 
 ///|
-fn operator_group_from_string(value : String) -> OperatorGroup {
+fn operator_group_from_string(value : String) -> OperatorGroup raise {
   match value {
     "comparison" | "comparisons" => Comparison
     "boolean" | "boolean-logic" => Boolean
@@ -22,22 +22,22 @@ fn operator_group_from_string(value : String) -> OperatorGroup {
 
 ///|
 struct ProjectConfig {
-  include : Array[String]
-  exclude : Array[String]
+  include_patterns : Array[String]
+  exclude_patterns : Array[String]
   operators : Array[OperatorGroup]?
 }
 
 ///|
 fn default_project_config() -> ProjectConfig {
-  { include: [], exclude: [], operators: None, }
+  { include_patterns: [], exclude_patterns: [], operators: None, }
 }
 
 ///|
 fn ProjectConfig::path_enabled(self : ProjectConfig, path : String) -> Bool {
   let path = path.replace_all(old="\\", new="/")
-  let mut included = self.include.is_empty()
+  let mut included = self.include_patterns.is_empty()
   if !included {
-    for pattern in self.include {
+    for pattern in self.include_patterns {
       if path.contains(pattern) {
         included = true
         break
@@ -47,7 +47,7 @@ fn ProjectConfig::path_enabled(self : ProjectConfig, path : String) -> Bool {
   if !included {
     return false
   }
-  for pattern in self.exclude {
+  for pattern in self.exclude_patterns {
     if path.contains(pattern) {
       return false
     }
@@ -141,11 +141,11 @@ struct JsonSummary {
 ///|
 struct JsonReport {
   schema : Int
-  module : String
+  module_path : String
   baseline_duration_ms : Int64
   mutants : Array[JsonMutation]
   summary : JsonSummary
-} derive(ToJson)
+} derive(ToJson(fields(module_path(rename="module"))))
 
 ///|
 enum CommandResult {
