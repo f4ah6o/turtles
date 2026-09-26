@@ -113,7 +113,11 @@ fn config_consume(bytes : Bytes, position : Ref[Int], expected : Byte) -> Bool {
 }
 
 ///|
-fn config_expect(bytes : Bytes, position : Ref[Int], expected : Byte) -> Unit raise {
+fn config_expect(
+  bytes : Bytes,
+  position : Ref[Int],
+  expected : Byte,
+) -> Unit raise {
   guard config_consume(bytes, position, expected) else {
     fail(
       config_error(bytes, position.val, "expected configuration punctuation"),
@@ -201,7 +205,9 @@ fn config_parse_string_array(
     if config_consume(bytes, position, b']') {
       return values
     }
-    fail(config_error(bytes, position.val, "expected ',' or ']' after array item"))
+    fail(
+      config_error(bytes, position.val, "expected ',' or ']' after array item"),
+    )
   }
 }
 
@@ -266,12 +272,16 @@ fn parse_project_config(source : String) -> ProjectConfig raise {
   {
     include_patterns,
     exclude_patterns,
-    operators: if operators_set { Some(operators) } else { None },
+    operators: if operators_set {
+      Some(operators)
+    } else {
+      None
+    },
   }
 }
 
 ///|
-async fn load_project_config(root : String) -> ProjectConfig raise {
+async fn load_project_config(root : String) -> ProjectConfig {
   let path = @path.Path(root).join(Path("turtles.toml")).to_string()
   if !@fs.exists(path) {
     return default_project_config()
