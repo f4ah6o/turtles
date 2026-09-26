@@ -30,4 +30,18 @@ jobs:
       - name: Run turtles against fixture
         run: |
           export PATH="$HOME/.moon/bin:$PATH"
-          cargo run -- --dir fixtures/basic --timeout 30
+          report="$RUNNER_TEMP/turtles-report.json"
+          cargo run -- --dir fixtures/basic --timeout 30 --json "$report"
+          python - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          assert report["schema"] == 1
+          assert report["mutants"]
+          assert report["summary"]["survived"] == 0
+          assert report["summary"]["timeout"] == 0
+          assert all("duration_ms" in mutant for mutant in report["mutants"])
+          PY
