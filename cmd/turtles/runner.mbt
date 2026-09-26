@@ -3,7 +3,7 @@ async fn run_moon_command(
   root : String,
   args : Array[String],
   timeout_ms : Int,
-) -> CommandResult {
+) -> CommandResult raise {
   let exit_code = @async.with_timeout_opt(timeout_ms, () => {
     @process.run("moon", args, cwd=root, cancel_handler=@process.hard_cancel())
   })
@@ -15,7 +15,7 @@ async fn run_moon_command(
 }
 
 ///|
-async fn classify_mutant(root : String, timeout_ms : Int) -> Outcome {
+async fn classify_mutant(root : String, timeout_ms : Int) -> Outcome raise {
   match run_moon_command(root, ["check"], timeout_ms) {
     CommandFailure => return Unviable
     CommandTimeout => return Timeout
@@ -33,7 +33,7 @@ async fn run_mutations(
   root : String,
   mutations : Array[Mutation],
   timeout_ms : Int,
-) -> Array[MutationResult] {
+) -> Array[MutationResult] raise {
   let workspace = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
     group.add_defer(() => @fs.rmdir(workspace, recursive=true))
