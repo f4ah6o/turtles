@@ -37,7 +37,7 @@ test "AST discovery finds expression operators and literals" {
 
 ///|
 test "comments do not produce candidates" {
-  let source = "/* true /* a + b */ false */"
+  let source = "fn f() -> Unit { /* true /* a + b */ false */ () }"
   let mutations = scan_source("sample.mbt", source, default_project_config())
   inspect(mutations.length(), content="0")
 }
