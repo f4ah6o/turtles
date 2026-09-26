@@ -13,6 +13,7 @@ There is no Rust or Cargo implementation.
 The project currently uses:
 
 - `moonbitlang/async` for subprocess execution, cancellation, timing, and async filesystem operations
+- `moonbitlang/parser@0.4.0` for syntax-aware mutation candidate discovery
 - `moonbitlang/x` for native path/system support
 - `moon check` and `moon test` for mutant classification
 
@@ -25,7 +26,7 @@ The current vertical slice covers common expression mutations:
 - arithmetic: `+ ↔ -`, `* ↔ /`
 - boolean literals: `true ↔ false`
 
-Comments, strings, character literals, test files (`*_test.mbt`, `*_wbtest.mbt`), generated/build directories, and function arrows are skipped. Mutations that make the program fail `moon check` are reported as **unviable**, rather than as killed tests.
+Comments, strings, character literals, test files (`*_test.mbt`, `*_wbtest.mbt`), generated/build directories, and function arrows are excluded by syntax rather than lexical heuristics. Mutations that make the program fail `moon check` are reported as **unviable**, rather than as killed tests.
 
 ## Run from source
 
@@ -123,6 +124,6 @@ The real fixture E2E also validates schema-1 JSON report generation.
 
 ## Current scope
 
-The rewrite preserves the trustworthy MVP behavior while making MoonBit the implementation language end to end. The current mutation scanner remains a small lexical compatibility layer for the existing token mutations. The next mutation-quality step is direct AST-aware discovery through the official `moonbitlang/parser` package; see `docs/moonbit-parser.md`.
+The rewrite preserves the trustworthy MVP behavior while making MoonBit the implementation language end to end. Candidate discovery is driven by the pinned experimental parser AST; parser diagnostics abort discovery instead of triggering a lexical fallback. The current AST boundary covers the existing operator and boolean-literal mutations while preserving byte-accurate application and parser line/column reporting. See `docs/moonbit-parser.md`.
 
 Planned follow-ups include structural AST mutations, test selection, parallel workers, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.
