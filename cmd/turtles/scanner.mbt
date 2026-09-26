@@ -8,20 +8,20 @@ struct OpSpec {
 ///|
 fn operator_specs() -> Array[OpSpec] {
   [
-    { group: Comparison, original: "==", replacement: "!=" },
-    { group: Comparison, original: "!=", replacement: "==" },
-    { group: Comparison, original: ">=", replacement: "<" },
-    { group: Comparison, original: "<=", replacement: ">" },
-    { group: Boolean, original: "&&", replacement: "||" },
-    { group: Boolean, original: "||", replacement: "&&" },
-    { group: Literal, original: "true", replacement: "false" },
-    { group: Literal, original: "false", replacement: "true" },
-    { group: Arithmetic, original: "+", replacement: "-" },
-    { group: Arithmetic, original: "-", replacement: "+" },
-    { group: Arithmetic, original: "*", replacement: "/" },
-    { group: Arithmetic, original: "/", replacement: "*" },
-    { group: Comparison, original: ">", replacement: "<" },
-    { group: Comparison, original: "<", replacement: ">" },
+    { group: Comparison, original: "==", replacement: "!=", },
+    { group: Comparison, original: "!=", replacement: "==", },
+    { group: Comparison, original: ">=", replacement: "<", },
+    { group: Comparison, original: "<=", replacement: ">", },
+    { group: Boolean, original: "&&", replacement: "||", },
+    { group: Boolean, original: "||", replacement: "&&", },
+    { group: Literal, original: "true", replacement: "false", },
+    { group: Literal, original: "false", replacement: "true", },
+    { group: Arithmetic, original: "+", replacement: "-", },
+    { group: Arithmetic, original: "-", replacement: "+", },
+    { group: Arithmetic, original: "*", replacement: "/", },
+    { group: Arithmetic, original: "/", replacement: "*", },
+    { group: Comparison, original: ">", replacement: "<", },
+    { group: Comparison, original: "<", replacement: ">", },
   ]
 }
 
@@ -235,8 +235,10 @@ fn scan_source(
         continue
       }
       if (spec.original == "true" || spec.original == "false") &&
-        (!word_start_boundary(bytes, index) ||
-          !word_end_boundary(bytes, index + token.length())) {
+        (
+          !word_start_boundary(bytes, index) ||
+          !word_end_boundary(bytes, index + token.length())
+        ) {
         continue
       }
       if is_syntax_punctuation(bytes, index, spec.original) {
@@ -279,7 +281,9 @@ fn apply_mutation(source : String, mutation : Mutation) -> String {
   guard @utf8.decode(bytes[mutation.start:mutation.end]) == mutation.original else {
     fail("source changed after mutation discovery")
   }
-  let output = @buffer.Buffer(size_hint=bytes.length() + mutation.replacement.length())
+  let output = @buffer.Buffer(
+    size_hint=bytes.length() + mutation.replacement.length(),
+  )
   output.write_bytes(bytes[:mutation.start])
   output.write_string_utf8(mutation.replacement)
   output.write_bytes(bytes[mutation.end:])
