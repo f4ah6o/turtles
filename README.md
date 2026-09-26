@@ -45,6 +45,7 @@ turtles [OPTIONS]
 -d, --dir <PATH>       MoonBit module directory (default: .)
     --timeout <SECS>   Per-command timeout (default: 60)
     --file <TEXT>      Only mutate source paths containing TEXT
+    --json <PATH>      Write a JSON report to PATH
     --list             List mutations without running tests
 -h, --help             Print help
 ```
@@ -54,6 +55,14 @@ turtles [OPTIONS]
 ```sh
 turtles --list
 ```
+
+Use `--json` to persist machine-readable results, including baseline duration, per-mutant outcome/timing, and the final summary:
+
+```sh
+turtles --json target/turtles-report.json
+```
+
+The JSON report currently uses schema version `1`.
 
 ## Configuration
 
@@ -90,4 +99,4 @@ Before mutation testing, `turtles` runs an unchanged `moon test` baseline. It th
 
 ## Current scope
 
-This is an MVP focused on a trustworthy end-to-end loop rather than maximum mutation count. Planned follow-ups include AST-aware mutation via MoonBit compiler/tooling APIs when a stable interface is available, test selection, parallel workers, per-mutant output capture, config files, JSON/JUnit reports, and incremental/cached execution.
+This is an MVP focused on a trustworthy end-to-end loop rather than maximum mutation count. Configuration and JSON reporting are available now. Planned follow-ups include AST-aware mutation through the versioned adapter described in `docs/moonbit-parser.md`, test selection, parallel workers, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.
