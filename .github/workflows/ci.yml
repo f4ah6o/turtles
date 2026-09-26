@@ -35,7 +35,15 @@ jobs:
               report = json.load(handle)
 
           assert report["schema"] == 1
-          assert report["mutants"]
+          assert len(report["mutants"]) == 6
+          assert any(
+              mutant["original"] == "flag" and mutant["replacement"] == "true"
+              for mutant in report["mutants"]
+          )
+          assert any(
+              mutant["original"] == "flag" and mutant["replacement"] == "false"
+              for mutant in report["mutants"]
+          )
           assert report["summary"]["survived"] == 0
           assert report["summary"]["timeout"] == 0
           assert all("duration_ms" in mutant for mutant in report["mutants"])
