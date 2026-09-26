@@ -27,6 +27,57 @@ struct Config {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OperatorGroup {
+    Comparison,
+    Boolean,
+    Arithmetic,
+    Literal,
+}
+
+impl OperatorGroup {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "comparison" | "comparisons" => Ok(Self::Comparison),
+            "boolean" | "boolean-logic" => Ok(Self::Boolean),
+            "arithmetic" => Ok(Self::Arithmetic),
+            "literal" | "boolean-literal" | "boolean-literals" => Ok(Self::Literal),
+            other => Err(format!(
+                "unknown operator group {other:?}; expected comparison, boolean, arithmetic, or literal"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ProjectConfig {
+    include: Vec<String>,
+    exclude: Vec<String>,
+    operators: Option<Vec<OperatorGroup>>,
+}
+
+impl ProjectConfig {
+    fn path_enabled(&self, path: &Path) -> bool {
+        let path = path.to_string_lossy().replace('\\', "/");
+        let included = self.include.is_empty()
+            || self
+                .include
+                .iter()
+                .any(|pattern| path.contains(pattern.as_str()));
+        included
+            && !self
+                .exclude
+                .iter()
+                .any(|pattern| path.contains(pattern.as_str()))
+    }
+
+    fn operator_enabled(&self, group: OperatorGroup) -> bool {
+        self.operators
+            .as_ref()
+            .is_none_or(|operators| operators.contains(&group))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
     Killed,
     Survived,
@@ -56,7 +107,8 @@ fn run() -> Result<ExitCode, String> {
         ));
     }
 
-    let mutations = discover_mutations(&root, config.file_filter.as_deref())
+    let project_config = load_project_config(&root)?;
+    let mutations = discover_mutations(&root, config.file_filter.as_deref(), &project_config)
         .map_err(|e| format!("failed to scan MoonBit sources: {e}"))?;
 
     if mutations.is_empty() {
@@ -195,15 +247,233 @@ Options:\n\
     })
 }
 
-fn discover_mutations(root: &Path, file_filter: Option<&str>) -> io::Result<Vec<Mutation>> {
+fn load_project_config(root: &Path) -> Result<ProjectConfig, String> {
+    let path = root.join("turtles.toml");
+    if !path.is_file() {
+        return Ok(ProjectConfig::default());
+    }
+
+    let source =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    parse_project_config(&source).map_err(|e| format!("invalid {}: {e}", path.display()))
+}
+
+fn parse_project_config(source: &str) -> Result<ProjectConfig, String> {
+    ConfigParser::new(source).parse()
+}
+
+struct ConfigParser<'a> {
+    source: &'a str,
+    bytes: &'a [u8],
+    position: usize,
+}
+
+impl<'a> ConfigParser<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            bytes: source.as_bytes(),
+            position: 0,
+        }
+    }
+
+    fn parse(mut self) -> Result<ProjectConfig, String> {
+        let mut config = ProjectConfig::default();
+        let mut seen_include = false;
+        let mut seen_exclude = false;
+        let mut seen_operators = false;
+
+        loop {
+            self.skip_space_and_comments();
+            if self.position >= self.bytes.len() {
+                break;
+            }
+
+            let key = self.parse_key()?;
+            self.skip_space_and_comments();
+            self.expect_byte(b'=')?;
+            self.skip_space_and_comments();
+            let values = self.parse_string_array()?;
+
+            match key.as_str() {
+                "include" => {
+                    if seen_include {
+                        return Err(self.error("duplicate include key"));
+                    }
+                    seen_include = true;
+                    config.include = values;
+                }
+                "exclude" => {
+                    if seen_exclude {
+                        return Err(self.error("duplicate exclude key"));
+                    }
+                    seen_exclude = true;
+                    config.exclude = values;
+                }
+                "operators" => {
+                    if seen_operators {
+                        return Err(self.error("duplicate operators key"));
+                    }
+                    seen_operators = true;
+                    config.operators = Some(
+                        values
+                            .iter()
+                            .map(|value| OperatorGroup::parse(value))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    );
+                }
+                other => {
+                    return Err(self.error(&format!(
+                        "unknown key {other:?}; expected include, exclude, or operators"
+                    )));
+                }
+            }
+        }
+
+        Ok(config)
+    }
+
+    fn skip_space_and_comments(&mut self) {
+        loop {
+            while self
+                .bytes
+                .get(self.position)
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+            {
+                self.position += 1;
+            }
+            if self.bytes.get(self.position) != Some(&b'#') {
+                break;
+            }
+            while self.position < self.bytes.len() && self.bytes[self.position] != b'\n' {
+                self.position += 1;
+            }
+        }
+    }
+
+    fn parse_key(&mut self) -> Result<String, String> {
+        let start = self.position;
+        while self
+            .bytes
+            .get(self.position)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-')
+        {
+            self.position += 1;
+        }
+        if start == self.position {
+            return Err(self.error("expected a configuration key"));
+        }
+        Ok(self.source[start..self.position].to_owned())
+    }
+
+    fn parse_string_array(&mut self) -> Result<Vec<String>, String> {
+        self.expect_byte(b'[')?;
+        let mut values = Vec::new();
+
+        loop {
+            self.skip_space_and_comments();
+            if self.consume_byte(b']') {
+                return Ok(values);
+            }
+
+            values.push(self.parse_string()?);
+            self.skip_space_and_comments();
+
+            if self.consume_byte(b',') {
+                continue;
+            }
+            if self.consume_byte(b']') {
+                return Ok(values);
+            }
+            return Err(self.error("expected ',' or ']' after array item"));
+        }
+    }
+
+    fn parse_string(&mut self) -> Result<String, String> {
+        self.expect_byte(b'"')?;
+        let mut output = String::new();
+
+        while self.position < self.bytes.len() {
+            let byte = self.bytes[self.position];
+            self.position += 1;
+            match byte {
+                b'"' => return Ok(output),
+                b'\\' => {
+                    let escaped = *self
+                        .bytes
+                        .get(self.position)
+                        .ok_or_else(|| self.error("unterminated string escape"))?;
+                    self.position += 1;
+                    match escaped {
+                        b'"' => output.push('"'),
+                        b'\\' => output.push('\\'),
+                        b'n' => output.push('\n'),
+                        b'r' => output.push('\r'),
+                        b't' => output.push('\t'),
+                        _ => {
+                            return Err(self.error(
+                                "unsupported string escape; use \", \\\\, \\n, \\r, or \\t",
+                            ));
+                        }
+                    }
+                }
+                b'\n' | b'\r' => return Err(self.error("newline in quoted string")),
+                _ if byte.is_ascii() => output.push(byte as char),
+                _ => {
+                    let start = self.position - 1;
+                    let ch = self.source[start..]
+                        .chars()
+                        .next()
+                        .ok_or_else(|| self.error("invalid UTF-8 in string"))?;
+                    output.push(ch);
+                    self.position = start + ch.len_utf8();
+                }
+            }
+        }
+
+        Err(self.error("unterminated quoted string"))
+    }
+
+    fn expect_byte(&mut self, expected: u8) -> Result<(), String> {
+        if self.consume_byte(expected) {
+            Ok(())
+        } else {
+            Err(self.error(&format!("expected {:?}", expected as char)))
+        }
+    }
+
+    fn consume_byte(&mut self, expected: u8) -> bool {
+        if self.bytes.get(self.position) == Some(&expected) {
+            self.position += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn error(&self, message: &str) -> String {
+        let prefix = &self.source[..self.position.min(self.source.len())];
+        let line = prefix.bytes().filter(|&byte| byte == b'\n').count() + 1;
+        let column = prefix
+            .rsplit_once('\n')
+            .map_or(prefix.len() + 1, |(_, tail)| tail.len() + 1);
+        format!("{message} at {line}:{column}")
+    }
+}
+
+fn discover_mutations(
+    root: &Path,
+    file_filter: Option<&str>,
+    project_config: &ProjectConfig,
+) -> io::Result<Vec<Mutation>> {
     let mut files = Vec::new();
-    collect_moonbit_files(root, root, file_filter, &mut files)?;
+    collect_moonbit_files(root, root, file_filter, project_config, &mut files)?;
     files.sort();
 
     let mut mutations = Vec::new();
     for relative in files {
         let source = fs::read_to_string(root.join(&relative))?;
-        mutations.extend(scan_source(&relative, &source));
+        mutations.extend(scan_source(&relative, &source, project_config));
     }
     Ok(mutations)
 }
@@ -212,6 +482,7 @@ fn collect_moonbit_files(
     root: &Path,
     dir: &Path,
     file_filter: Option<&str>,
+    project_config: &ProjectConfig,
     out: &mut Vec<PathBuf>,
 ) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
@@ -223,7 +494,7 @@ fn collect_moonbit_files(
             if should_skip_dir(&name) {
                 continue;
             }
-            collect_moonbit_files(root, &path, file_filter, out)?;
+            collect_moonbit_files(root, &path, file_filter, project_config, out)?;
             continue;
         }
 
@@ -237,6 +508,9 @@ fn collect_moonbit_files(
         }
 
         let relative = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        if !project_config.path_enabled(&relative) {
+            continue;
+        }
         if let Some(filter) = file_filter
             && !relative.to_string_lossy().contains(filter)
         {
@@ -254,22 +528,22 @@ fn should_skip_dir(name: &OsStr) -> bool {
     )
 }
 
-fn scan_source(path: &Path, source: &str) -> Vec<Mutation> {
-    const OPS: &[(&str, &str)] = &[
-        ("==", "!="),
-        ("!=", "=="),
-        (">=", "<"),
-        ("<=", ">"),
-        ("&&", "||"),
-        ("||", "&&"),
-        ("true", "false"),
-        ("false", "true"),
-        ("+", "-"),
-        ("-", "+"),
-        ("*", "/"),
-        ("/", "*"),
-        (">", "<"),
-        ("<", ">"),
+fn scan_source(path: &Path, source: &str, project_config: &ProjectConfig) -> Vec<Mutation> {
+    const OPS: &[(OperatorGroup, &str, &str)] = &[
+        (OperatorGroup::Comparison, "==", "!="),
+        (OperatorGroup::Comparison, "!=", "=="),
+        (OperatorGroup::Comparison, ">=", "<"),
+        (OperatorGroup::Comparison, "<=", ">"),
+        (OperatorGroup::Boolean, "&&", "||"),
+        (OperatorGroup::Boolean, "||", "&&"),
+        (OperatorGroup::Literal, "true", "false"),
+        (OperatorGroup::Literal, "false", "true"),
+        (OperatorGroup::Arithmetic, "+", "-"),
+        (OperatorGroup::Arithmetic, "-", "+"),
+        (OperatorGroup::Arithmetic, "*", "/"),
+        (OperatorGroup::Arithmetic, "/", "*"),
+        (OperatorGroup::Comparison, ">", "<"),
+        (OperatorGroup::Comparison, "<", ">"),
     ];
 
     let bytes = source.as_bytes();
@@ -297,7 +571,10 @@ fn scan_source(path: &Path, source: &str) -> Vec<Mutation> {
         }
 
         let mut matched = false;
-        for &(original, replacement) in OPS {
+        for &(group, original, replacement) in OPS {
+            if !project_config.operator_enabled(group) {
+                continue;
+            }
             let op = original.as_bytes();
             if !starts(bytes, i, op) {
                 continue;
@@ -568,7 +845,7 @@ fn f(a : Int, b : Int) -> Bool {
   a + b >= 1 && true
 }
 "#;
-        let mutations = scan_source(Path::new("sample.mbt"), source);
+        let mutations = scan_source(Path::new("sample.mbt"), source, &ProjectConfig::default());
         let pairs: Vec<_> = mutations
             .iter()
             .map(|m| (m.original, m.replacement))
@@ -582,16 +859,49 @@ fn f(a : Int, b : Int) -> Bool {
     #[test]
     fn does_not_mutate_function_arrow() {
         let source = "fn f(x : Int) -> Int { x - 1 }";
-        let mutations = scan_source(Path::new("sample.mbt"), source);
+        let mutations = scan_source(Path::new("sample.mbt"), source, &ProjectConfig::default());
         assert_eq!(mutations.len(), 1);
         assert_eq!(mutations[0].original, "-");
         assert_eq!(mutations[0].column, 26);
     }
 
     #[test]
+    fn parses_project_config_with_multiline_arrays_and_comments() {
+        let config = parse_project_config(
+            r#"
+# Paths are substring matches against normalized relative paths.
+include = [
+  "src/",
+  "lib/",
+]
+exclude = ["generated/", "vendor/"]
+operators = ["comparison", "literal"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.include, vec!["src/", "lib/"]);
+        assert_eq!(config.exclude, vec!["generated/", "vendor/"]);
+        assert_eq!(
+            config.operators,
+            Some(vec![OperatorGroup::Comparison, OperatorGroup::Literal])
+        );
+        assert!(config.path_enabled(Path::new("src/math.mbt")));
+        assert!(!config.path_enabled(Path::new("src/generated/math.mbt")));
+        assert!(config.operator_enabled(OperatorGroup::Comparison));
+        assert!(!config.operator_enabled(OperatorGroup::Arithmetic));
+    }
+
+    #[test]
+    fn project_config_rejects_unknown_operator_group() {
+        let error = parse_project_config(r#"operators = ["mystery"]"#).unwrap_err();
+        assert!(error.contains("unknown operator group"));
+    }
+
+    #[test]
     fn applies_exact_mutation() {
         let source = "pub fn enabled() -> Bool { true }";
-        let mutation = scan_source(Path::new("sample.mbt"), source)
+        let mutation = scan_source(Path::new("sample.mbt"), source, &ProjectConfig::default())
             .into_iter()
             .next()
             .unwrap();
@@ -602,7 +912,7 @@ fn f(a : Int, b : Int) -> Bool {
     #[test]
     fn nested_block_comments_are_skipped() {
         let source = "/* true /* + */ && */ false";
-        let mutations = scan_source(Path::new("sample.mbt"), source);
+        let mutations = scan_source(Path::new("sample.mbt"), source, &ProjectConfig::default());
         assert_eq!(mutations.len(), 1);
         assert_eq!(mutations[0].original, "false");
     }
