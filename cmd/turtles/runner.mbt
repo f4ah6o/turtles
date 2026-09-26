@@ -4,14 +4,9 @@ async fn run_moon_command(
   args : Array[String],
   timeout_ms : Int,
 ) -> CommandResult {
-  let exit_code = @async.with_timeout_opt(timeout_ms, () =>
-    @process.run(
-      "moon",
-      args,
-      cwd=root,
-      cancel_handler=@process.hard_cancel(),
-    )
-  )
+  let exit_code = @async.with_timeout_opt(timeout_ms, () => {
+    @process.run("moon", args, cwd=root, cancel_handler=@process.hard_cancel())
+  })
   match exit_code {
     None => CommandTimeout
     Some(0) => CommandSuccess
@@ -58,7 +53,7 @@ async fn run_mutations(
       println(
         "[\{index}/\{mutations.length()}] \{outcome_name(outcome)} \{describe_mutation(mutation)}",
       )
-      results.push({ mutation, outcome, duration_ms })
+      results.push({ mutation, outcome, duration_ms, })
     }
     results
   }
