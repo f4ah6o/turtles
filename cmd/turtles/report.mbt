@@ -32,7 +32,7 @@ async fn write_json_report(
   baseline_duration_ms : Int64,
   results : Array[MutationResult],
   score : Double,
-) -> Unit raise {
+) -> Unit {
   let mutants : Array[JsonMutation] = []
   for result in results {
     mutants.push({
