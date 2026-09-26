@@ -271,7 +271,7 @@ fn scan_source(
 }
 
 ///|
-fn apply_mutation(source : String, mutation : Mutation) -> String {
+fn apply_mutation(source : String, mutation : Mutation) -> String raise {
   let bytes = @utf8.encode(source)
   guard mutation.start >= 0 &&
     mutation.end >= mutation.start &&
