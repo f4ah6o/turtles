@@ -29,7 +29,7 @@ struct ProjectConfig {
 
 ///|
 fn default_project_config() -> ProjectConfig {
-  { include: [], exclude: [], operators: None }
+  { include: [], exclude: [], operators: None, }
 }
 
 ///|
