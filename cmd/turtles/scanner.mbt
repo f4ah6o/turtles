@@ -151,9 +151,9 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Infix(
   loc~,
 ) {
   match op.name {
-    @syntax.LongIdent::Ident(original~) =>
+    @syntax.LongIdent::Ident(name~) =>
       self.record_operator(
-        original,
+        name,
         op.loc.start.cnum,
         op.loc.end.cnum,
         op.loc.start.lnum,
@@ -161,7 +161,13 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Infix(
       )
     _ => ()
   }
-  self.base().visit_Expr_Infix(op~, lhs~, rhs~, loc~)
+  @syntax.IterVisitor::visit_Expr_Infix(
+    @syntax.IterVisitor::base(self),
+    op~,
+    lhs~,
+    rhs~,
+    loc~,
+  )
 }
 
 ///|
@@ -183,7 +189,11 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Constant(
     }
     _ => ()
   }
-  self.base().visit_Expr_Constant(c~, loc~)
+  @syntax.IterVisitor::visit_Expr_Constant(
+    @syntax.IterVisitor::base(self),
+    c~,
+    loc~,
+  )
 }
 
 ///|
@@ -207,7 +217,7 @@ fn scan_source(
       "parser failed for \{path}: \{reports.length()} diagnostic(s); refusing lexical fallback",
     )
   }
-  impls.each(impl_ => visitor.visit_Impl(impl_))
+  impls.each(impl_ => @syntax.IterVisitor::visit_Impl(visitor, impl_))
   visitor.mutations
 }
 
