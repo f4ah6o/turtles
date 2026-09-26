@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  moonbit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Update dependencies
+        run: moon update
+      - name: Check formatting
+        run: moon fmt --check
+      - name: Check
+        run: moon check --target native --deny-warn
+      - name: Unit tests
+        run: moon test --target native
+      - name: Run fixture baseline
+        run: moon -C fixtures/basic test
+      - name: Run turtles against fixture
+        run: |
+          report="$RUNNER_TEMP/turtles-report.json"
+          moon run cmd/turtles -- --dir fixtures/basic --timeout 30 --json "$report"
+          python - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          assert report["schema"] == 1
+          assert report["mutants"]
+          assert report["summary"]["survived"] == 0
+          assert report["summary"]["timeout"] == 0
+          assert all("duration_ms" in mutant for mutant in report["mutants"])
+          PY
