@@ -1,5 +1,5 @@
 ///|
-async fn execute() -> Int raise {
+async fn execute() -> Int {
   let config = parse_args()
   let root = @fs.realpath(config.dir)
   ensure_moonbit_module(root)
