@@ -1,12 +1,24 @@
 # turtles
 
-Mutation testing for MoonBit projects — the `cargo-mutants` idea, adapted to `moon test`.
+Mutation testing for MoonBit projects — the `cargo-mutants` idea, implemented entirely in MoonBit and adapted to `moon test`.
 
 `turtles` finds small source-level changes ("mutants"), applies them one at a time in a **temporary copy** of your MoonBit module, and asks your tests to catch them. Your working tree is never intentionally modified.
 
+## Implementation
+
+`turtles` itself is a native MoonBit executable. The CLI, configuration parser, mutation discovery/application, temporary-workspace handling, subprocess execution, timeout handling, classification, and JSON reporting are all written in MoonBit.
+
+There is no Rust or Cargo implementation.
+
+The project currently uses:
+
+- `moonbitlang/async` for subprocess execution, cancellation, timing, and async filesystem operations
+- `moonbitlang/x` for native path/system support
+- `moon check` and `moon test` for mutant classification
+
 ## What it mutates
 
-The first vertical slice covers common expression mutations:
+The current vertical slice covers common expression mutations:
 
 - comparisons: `== ↔ !=`, `> → <`, `< → >`, `>= → <`, `<= → >`
 - boolean logic: `&& ↔ ||`
@@ -15,27 +27,24 @@ The first vertical slice covers common expression mutations:
 
 Comments, strings, character literals, test files (`*_test.mbt`, `*_wbtest.mbt`), generated/build directories, and function arrows are skipped. Mutations that make the program fail `moon check` are reported as **unviable**, rather than as killed tests.
 
-## Install
+## Run from source
+
+MoonBit's `moon` executable must be on `PATH`.
 
 From this repository:
 
 ```sh
-cargo install --path .
+moon update
+moon run cmd/turtles -- --help
 ```
 
-Then, in a MoonBit module:
+Run against a MoonBit module:
 
 ```sh
-turtles
+moon run cmd/turtles -- --dir path/to/module
 ```
 
-Or run it against another module:
-
-```sh
-turtles --dir path/to/module
-```
-
-MoonBit's `moon` executable must be on `PATH`.
+The executable package is `cmd/turtles` and targets MoonBit native.
 
 ## CLI
 
@@ -53,20 +62,20 @@ turtles [OPTIONS]
 `--list` is useful for inspecting the mutation set before spending time running tests:
 
 ```sh
-turtles --list
+moon run cmd/turtles -- --dir path/to/module --list
 ```
 
 Use `--json` to persist machine-readable results, including baseline duration, per-mutant outcome/timing, and the final summary:
 
 ```sh
-turtles --json target/turtles-report.json
+moon run cmd/turtles -- --dir path/to/module --json target/turtles-report.json
 ```
 
 The JSON report currently uses schema version `1`.
 
 ## Configuration
 
-If `turtles.toml` exists in the MoonBit module root, turtles reads mutation selection from it before scanning sources.
+If `turtles.toml` exists in the target MoonBit module root, turtles reads mutation selection from it before scanning sources.
 
 ```toml
 include = ["src/", "lib/"]
@@ -80,7 +89,7 @@ operators = ["comparison", "boolean", "arithmetic", "literal"]
 - CLI `--file` remains an additional filter on top of `turtles.toml`.
 - Test files remain excluded by default and cannot be enabled through this configuration.
 
-The current parser intentionally supports a small TOML-compatible subset: top-level arrays of double-quoted strings, comments, trailing commas, and multiline arrays. Unknown keys and operator groups are rejected instead of silently ignored.
+The configuration parser intentionally supports a small TOML-compatible subset: top-level arrays of double-quoted strings, comments, trailing commas, and multiline arrays. Unknown keys and operator groups are rejected instead of silently ignored.
 
 ## Result model
 
@@ -95,8 +104,25 @@ The process exits with code `1` when any mutant survives or times out, `2` for s
 
 ## Safety model
 
-Before mutation testing, `turtles` runs an unchanged `moon test` baseline. It then copies the module into a temporary directory, excluding `.git`, `target`, `.mooncakes`, `.moon`, and `node_modules`. All mutations and test runs happen there. The temporary workspace is removed when the run finishes.
+Before mutation testing, `turtles` runs an unchanged `moon test` baseline. It then copies the module into a temporary directory, excluding `.git`, `target`, `_build`, `.mooncakes`, `.moon`, and `node_modules`. All mutations and test runs happen there. The temporary workspace is removed when the run finishes.
+
+## Development
+
+The CI is MoonBit-only:
+
+```sh
+moon update
+moon fmt --check
+moon check --target native --deny-warn
+moon test --target native
+moon -C fixtures/basic test
+moon run cmd/turtles -- --dir fixtures/basic --timeout 30
+```
+
+The real fixture E2E also validates schema-1 JSON report generation.
 
 ## Current scope
 
-This is an MVP focused on a trustworthy end-to-end loop rather than maximum mutation count. Configuration and JSON reporting are available now. Planned follow-ups include AST-aware mutation through the versioned adapter described in `docs/moonbit-parser.md`, test selection, parallel workers, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.
+The rewrite preserves the trustworthy MVP behavior while making MoonBit the implementation language end to end. The current mutation scanner remains a small lexical compatibility layer for the existing token mutations. The next mutation-quality step is direct AST-aware discovery through the official `moonbitlang/parser` package; see `docs/moonbit-parser.md`.
+
+Planned follow-ups include structural AST mutations, test selection, parallel workers, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.
