@@ -5,33 +5,28 @@ on:
   pull_request:
 
 jobs:
-  rust:
+  moonbit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --all-targets
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets -- -D warnings
-
-  moonbit-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
       - name: Install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Update dependencies
+        run: moon update
+      - name: Check formatting
+        run: moon fmt --check
+      - name: Check
+        run: moon check --target native --deny-warn
+      - name: Unit tests
+        run: moon test --target native
       - name: Run fixture baseline
-        run: |
-          export PATH="$HOME/.moon/bin:$PATH"
-          moon -C fixtures/basic test
+        run: moon -C fixtures/basic test
       - name: Run turtles against fixture
         run: |
-          export PATH="$HOME/.moon/bin:$PATH"
           report="$RUNNER_TEMP/turtles-report.json"
-          cargo run -- --dir fixtures/basic --timeout 30 --json "$report"
+          moon run cmd/turtles -- --dir fixtures/basic --timeout 30 --json "$report"
           python - "$report" <<'PY'
           import json
           import sys
