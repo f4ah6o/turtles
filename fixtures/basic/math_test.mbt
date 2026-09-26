@@ -19,3 +19,9 @@ test "both" {
 test "enabled" {
   inspect(enabled(), content="true")
 }
+
+///|
+test "choose" {
+  inspect(choose(true), content="1")
+  inspect(choose(false), content="2")
+}

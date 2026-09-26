@@ -104,8 +104,93 @@ test "operator aliases preserve the existing mutation table" {
 test "if conditions are traversed" {
   let source = "fn f(a : Int, b : Int) -> Int { if a > b { a } else { b } }"
   let mutations = scan_source("sample.mbt", source, default_project_config())
-  inspect(mutations.length(), content="1")
-  inspect(mutations[0].original, content=">")
+  inspect(mutations.length(), content="3")
+  assert_true(has_mutation(mutations, "a > b", "true"))
+  assert_true(has_mutation(mutations, "a > b", "false"))
+  assert_true(has_mutation(mutations, ">", "<"))
+}
+
+///|
+test "if conditions produce true and false replacements" {
+  let source = "fn f(flag : Bool) -> Int { if flag { 1 } else { 2 } }"
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="2")
+  assert_true(has_mutation(mutations, "flag", "true"))
+  assert_true(has_mutation(mutations, "flag", "false"))
+}
+
+///|
+test "if condition no-ops are filtered and literal replacements deduplicate" {
+  let source =
+    #|fn yes() -> Int { if true { 1 } else { 2 } }
+    #|fn no() -> Int { if false { 1 } else { 2 } }
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="2")
+  assert_true(has_mutation(mutations, "true", "false"))
+  assert_true(has_mutation(mutations, "false", "true"))
+}
+
+///|
+test "comments and strings do not produce if condition candidates" {
+  let source =
+    #|// if true { 1 } else { 2 }
+    #|fn text() -> String { "if false { 1 } else { 2 }" }
+    #|fn real(flag : Bool) -> Int { if flag { 1 } else { 2 } }
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="2")
+  assert_true(has_mutation(mutations, "flag", "true"))
+  assert_true(has_mutation(mutations, "flag", "false"))
+}
+
+///|
+test "nested if expressions are traversed" {
+  let source =
+    #|fn f(outer : Bool, inner : Bool) -> Int {
+    #|  if outer {
+    #|    if inner { 1 } else { 2 }
+    #|  } else {
+    #|    3
+    #|  }
+    #|}
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="4")
+  assert_true(has_mutation(mutations, "outer", "true"))
+  assert_true(has_mutation(mutations, "outer", "false"))
+  assert_true(has_mutation(mutations, "inner", "true"))
+  assert_true(has_mutation(mutations, "inner", "false"))
+}
+
+///|
+test "Unicode before if condition uses UTF-8 byte ranges" {
+  let source =
+    #|// 前置 😀
+    #|fn f(条件 : Bool) -> Int {
+    #|  if 条件 { 1 } else { 2 }
+    #|}
+  let mutations = scan_source("unicode.mbt", source, default_project_config())
+  inspect(mutations.length(), content="2")
+  let mutation = mutations[0]
+  let expected_start = @utf8.encode(
+    "// 前置 😀\nfn f(条件 : Bool) -> Int {\n  if ",
+  ).length()
+  let expected_end = expected_start + @utf8.encode("条件").length()
+  inspect(mutation.start, content="49")
+  inspect(mutation.end, content="55")
+  assert_eq(mutation.start, expected_start)
+  assert_eq(mutation.end, expected_end)
+  inspect(mutation.line, content="3")
+  inspect(mutation.column, content="6")
+  inspect(mutation.original, content="条件")
+  inspect(mutation.replacement, content="true")
+  inspect(
+    apply_mutation(source, mutation),
+    content=(
+      #|// 前置 😀
+      #|fn f(条件 : Bool) -> Int {
+      #|  if true { 1 } else { 2 }
+      #|}
+    ),
+  )
 }
 
 ///|
@@ -127,7 +212,9 @@ test "nested function-body blocks are traversed" {
     #|  }
     #|}
   let mutations = scan_source("sample.mbt", source, default_project_config())
-  inspect(mutations.length(), content="3")
+  inspect(mutations.length(), content="5")
+  assert_true(has_mutation(mutations, "a > b", "true"))
+  assert_true(has_mutation(mutations, "a > b", "false"))
   assert_true(has_mutation(mutations, ">", "<"))
   assert_true(has_mutation(mutations, "+", "-"))
   assert_true(has_mutation(mutations, "-", "+"))
@@ -203,14 +290,19 @@ test "existing fixture candidate parity" {
     #|pub fn enabled() -> Bool {
     #|  true
     #|}
+    #|pub fn choose(flag : Bool) -> Int {
+    #|  if flag { 1 } else { 2 }
+    #|}
   let mutations = scan_source(
     "fixtures/basic/math.mbt",
     source,
     default_project_config(),
   )
-  inspect(mutations.length(), content="4")
+  inspect(mutations.length(), content="6")
   assert_true(has_mutation(mutations, "+", "-"))
   assert_true(has_mutation(mutations, ">", "<"))
   assert_true(has_mutation(mutations, "&&", "||"))
   assert_true(has_mutation(mutations, "true", "false"))
+  assert_true(has_mutation(mutations, "flag", "true"))
+  assert_true(has_mutation(mutations, "flag", "false"))
 }

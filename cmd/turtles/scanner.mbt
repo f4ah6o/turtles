@@ -84,6 +84,42 @@ struct AstCandidateVisitor {
 }
 
 ///|
+fn AstCandidateVisitor::append_mutation(
+  self : AstCandidateVisitor,
+  group : OperatorGroup,
+  original : String,
+  replacement : String,
+  start : Int,
+  end : Int,
+  line : Int,
+  column : Int,
+) -> Unit {
+  if original == replacement {
+    return
+  }
+  let mutation = {
+    path: self.path,
+    start,
+    end,
+    line,
+    column,
+    group,
+    original,
+    replacement,
+  }
+  let mut duplicate = false
+  for previous in self.mutations {
+    if same_mutation_identity(previous, mutation) {
+      duplicate = true
+      break
+    }
+  }
+  if !duplicate {
+    self.mutations.push(mutation)
+  }
+}
+
+///|
 fn AstCandidateVisitor::record(
   self : AstCandidateVisitor,
   spec : OpSpec,
@@ -103,26 +139,38 @@ fn AstCandidateVisitor::record(
   if @utf8.decode_lossy(self.bytes[start:end]) != spec.original {
     panic()
   }
-  let mutation = {
-    path: self.path,
+  self.append_mutation(
+    spec.group,
+    spec.original,
+    spec.replacement,
     start,
     end,
     line,
     column,
-    group: spec.group,
-    original: spec.original,
-    replacement: spec.replacement,
+  )
+}
+
+///|
+/// Record a replacement whose original text is the complete source range.
+fn AstCandidateVisitor::record_range(
+  self : AstCandidateVisitor,
+  group : OperatorGroup,
+  replacement : String,
+  start_scalar : Int,
+  end_scalar : Int,
+  line : Int,
+  column : Int,
+) -> Unit {
+  if !self.project_config.operator_enabled(group) {
+    return
   }
-  let mut duplicate = false
-  for previous in self.mutations {
-    if same_mutation_identity(previous, mutation) {
-      duplicate = true
-      break
-    }
+  let start = source_byte_offset(self.boundaries, start_scalar)
+  let end = source_byte_offset(self.boundaries, end_scalar)
+  if end < start || end > self.bytes.length() {
+    panic()
   }
-  if !duplicate {
-    self.mutations.push(mutation)
-  }
+  let original = @utf8.decode_lossy(self.bytes[start:end])
+  self.append_mutation(group, original, replacement, start, end, line, column)
 }
 
 ///|
@@ -192,6 +240,40 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Constant(
   @syntax.IterVisitor::visit_Expr_Constant(
     @syntax.IterVisitor::base(self),
     c~,
+    loc~,
+  )
+}
+
+///|
+impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
+  self,
+  cond~,
+  ifso~,
+  ifnot~,
+  loc~,
+) {
+  let condition_loc = cond.loc()
+  self.record_range(
+    Boolean,
+    "true",
+    condition_loc.start.cnum,
+    condition_loc.end.cnum,
+    condition_loc.start.lnum,
+    condition_loc.start.column(),
+  )
+  self.record_range(
+    Boolean,
+    "false",
+    condition_loc.start.cnum,
+    condition_loc.end.cnum,
+    condition_loc.start.lnum,
+    condition_loc.start.column(),
+  )
+  @syntax.IterVisitor::visit_Expr_If(
+    @syntax.IterVisitor::base(self),
+    cond~,
+    ifso~,
+    ifnot~,
     loc~,
   )
 }
