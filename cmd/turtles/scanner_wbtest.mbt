@@ -7,11 +7,10 @@ test "finds mutations but skips comments and strings" {
     #|  a + b >= 1 && true
     #|}
   let mutations = scan_source("sample.mbt", source, default_project_config())
-  let pairs = mutations.map(mutation => (mutation.original, mutation.replacement))
-  inspect(
-    pairs,
-    content="[(+, -), (>=, <), (&&, ||), (true, false)]",
-  )
+  let pairs = mutations.map(mutation => {
+    (mutation.original, mutation.replacement)
+  })
+  inspect(pairs, content="[(+, -), (>=, <), (&&, ||), (true, false)]")
 }
 
 ///|
