@@ -237,10 +237,10 @@ fn collect_moonbit_files(
         }
 
         let relative = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
-        if let Some(filter) = file_filter {
-            if !relative.to_string_lossy().contains(filter) {
-                continue;
-            }
+        if let Some(filter) = file_filter
+            && !relative.to_string_lossy().contains(filter)
+        {
+            continue;
         }
         out.push(relative);
     }
