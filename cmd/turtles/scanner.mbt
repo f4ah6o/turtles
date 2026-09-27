@@ -199,7 +199,7 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Infix(
   loc~,
 ) {
   match op.name {
-    @syntax.LongIdent::Ident(original~) =>
+    @syntax.LongIdent::Ident(name=original) =>
       self.record_operator(
         original,
         op.loc.start.cnum,
