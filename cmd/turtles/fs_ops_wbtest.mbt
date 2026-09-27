@@ -47,7 +47,11 @@ async test "copied regular files preserve permission bits" {
 async test "read-only directories copy with their contents" {
   let temp = @fs.tmpdir(prefix="turtles-test")
   @async.with_task_group(group => {
-    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    // force_rmdir restores writability so read-only dirs can be removed;
+    // protect_from_cancel makes it legal inside a nocancel defer.
+    group.add_defer(() => {
+      @async.protect_from_cancel(() => force_rmdir(temp) catch { _ => () })
+    })
     let source = path_join(temp, "source")
     make_module_tree(source)
     let locked_dir = path_join(source, "locked")

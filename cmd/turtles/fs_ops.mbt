@@ -172,6 +172,32 @@ async fn copy_symlink(
 }
 
 ///|
+/// Entries inside a read-only directory cannot be unlinked until the
+/// directory becomes writable, so recursive removal loosens directory
+/// permissions first. Files need no chmod: unlinking them only requires a
+/// writable parent.
+async fn make_writable_tree(dir : String) -> Unit {
+  @fs.chmod(dir, 0o700) catch {
+    _ => return
+  }
+  let names = @fs.readdir(dir, include_hidden=true, sort=true) catch {
+    _ => return
+  }
+  for name in names {
+    let child = path_join(dir, name)
+    if @fs.kind(child, follow_symlink=false) is Directory {
+      make_writable_tree(child)
+    }
+  }
+}
+
+///|
+async fn force_rmdir(path : String) -> Unit {
+  make_writable_tree(path)
+  @fs.rmdir(path, recursive=true)
+}
+
+///|
 async fn copy_tree(
   root : String,
   current : String,

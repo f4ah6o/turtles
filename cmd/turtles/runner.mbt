@@ -66,7 +66,9 @@ async fn run_mutations(
   let root = @fs.realpath(root)
   let temp = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
-    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    group.add_defer(() => {
+      @async.protect_from_cancel(() => force_rmdir(temp) catch { _ => () })
+    })
     let reference = path_join(temp, "reference")
     @fs.mkdir(reference, recursive=true)
     copy_tree(root, root, reference)
@@ -96,7 +98,7 @@ async fn run_mutations(
         "[\{index}/\{mutations.length()}] \{outcome_name(outcome)} \{describe_mutation(mutation)}",
       )
       results.push({ mutation, outcome, duration_ms, })
-      @fs.rmdir(workspace, recursive=true) catch {
+      force_rmdir(workspace) catch {
         _ => ()
       }
     }
