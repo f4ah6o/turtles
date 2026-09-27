@@ -249,6 +249,59 @@ test "Unicode source ranges use parser positions and apply by UTF-8 bytes" {
 }
 
 ///|
+test "unary negation produces the arithmetic mutation" {
+  let source = "fn negate(x : Int) -> Int { -x }"
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="1")
+  let mutation = mutations[0]
+  inspect(mutation.group == Arithmetic, content="true")
+  inspect(mutation.original, content="-")
+  inspect(mutation.replacement, content="+")
+  inspect(
+    apply_mutation(source, mutation),
+    content="fn negate(x : Int) -> Int { +x }",
+  )
+}
+
+///|
+test "nested unary expressions are traversed" {
+  let source = "fn f(x : Int) -> Int { -(-x + 1) }"
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="3")
+  let minuses = mutations.filter(m => m.original == "-")
+  inspect(minuses.length(), content="2")
+  assert_true(has_mutation(mutations, "+", "-"))
+}
+
+///|
+test "unsupported unary operators produce no candidates" {
+  let source = "fn f(flag : Bool) -> Bool { !flag }"
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  inspect(mutations.length(), content="0")
+}
+
+///|
+test "arithmetic group filtering controls unary mutations" {
+  let source = "fn negate(x : Int) -> Int { -x }"
+  let config = parse_project_config("operators = [\"comparison\"]")
+  inspect(scan_source("sample.mbt", source, config).length(), content="0")
+}
+
+///|
+test "logical and condition groups select independently" {
+  let source = "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 0 } }"
+  let boolean = parse_project_config("operators = [\"boolean\"]")
+  let boolean_mutations = scan_source("sample.mbt", source, boolean)
+  inspect(boolean_mutations.length(), content="1")
+  inspect(boolean_mutations[0].original, content="&&")
+  let condition = parse_project_config("operators = [\"condition\"]")
+  let condition_mutations = scan_source("sample.mbt", source, condition)
+  inspect(condition_mutations.length(), content="2")
+  assert_true(has_mutation(condition_mutations, "a && b", "true"))
+  assert_true(has_mutation(condition_mutations, "a && b", "false"))
+}
+
+///|
 test "mutation identity is explicitly deduplicated" {
   let source = "a + b"
   let bytes = @utf8.encode(source)

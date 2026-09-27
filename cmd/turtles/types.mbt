@@ -4,6 +4,7 @@ enum OperatorGroup {
   Boolean
   Arithmetic
   Literal
+  Condition
 } derive(Eq)
 
 ///|
@@ -13,9 +14,10 @@ fn operator_group_from_string(value : String) -> OperatorGroup raise {
     "boolean" | "boolean-logic" => Boolean
     "arithmetic" => Arithmetic
     "literal" | "boolean-literal" | "boolean-literals" => Literal
+    "condition" | "conditions" => Condition
     other =>
       fail(
-        "unknown operator group \{other}; expected comparison, boolean, arithmetic, or literal",
+        "unknown operator group \{other}; expected comparison, boolean, arithmetic, literal, or condition",
       )
   }
 }
