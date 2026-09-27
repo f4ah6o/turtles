@@ -13,6 +13,16 @@ fn has_mutation(
 }
 
 ///|
+fn config_with_operators(operators : Array[OperatorGroup]) -> ProjectConfig {
+  {
+    include_patterns: [],
+    exclude_patterns: [],
+    operators: Some(operators),
+    gates: None,
+  }
+}
+
+///|
 test "line comments do not produce candidates" {
   let source = "// true && a > b\n"
   inspect(
@@ -117,6 +127,57 @@ test "if conditions produce true and false replacements" {
   inspect(mutations.length(), content="2")
   assert_true(has_mutation(mutations, "flag", "true"))
   assert_true(has_mutation(mutations, "flag", "false"))
+}
+
+///|
+test "boolean group excludes whole if condition mutations" {
+  let source =
+    "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 2 } }"
+  let mutations = scan_source(
+    "sample.mbt",
+    source,
+    config_with_operators([Boolean]),
+  )
+  inspect(mutations.length(), content="1")
+  assert_true(has_mutation(mutations, "&&", "||"))
+  inspect(has_mutation(mutations, "a && b", "true"), content="false")
+  inspect(has_mutation(mutations, "a && b", "false"), content="false")
+}
+
+///|
+test "conditional group owns whole if condition mutations" {
+  let source =
+    "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 2 } }"
+  let mutations = scan_source(
+    "sample.mbt",
+    source,
+    config_with_operators([Conditional]),
+  )
+  inspect(mutations.length(), content="2")
+  assert_true(has_mutation(mutations, "a && b", "true"))
+  assert_true(has_mutation(mutations, "a && b", "false"))
+  inspect(has_mutation(mutations, "&&", "||"), content="false")
+}
+
+///|
+test "literal group remains independent and combined duplicates collapse" {
+  let source = "fn f() -> Int { if true { 1 } else { 2 } }"
+  let literal_only = scan_source(
+    "sample.mbt",
+    source,
+    config_with_operators([Literal]),
+  )
+  inspect(literal_only.length(), content="1")
+  assert_true(has_mutation(literal_only, "true", "false"))
+  inspect(literal_only[0].group == Literal, content="true")
+
+  let combined = scan_source(
+    "sample.mbt",
+    source,
+    config_with_operators([Conditional, Literal]),
+  )
+  inspect(combined.length(), content="1")
+  assert_true(has_mutation(combined, "true", "false"))
 }
 
 ///|

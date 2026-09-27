@@ -254,7 +254,7 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
 ) {
   let condition_loc = cond.loc()
   self.record_range(
-    Boolean,
+    Conditional,
     "true",
     condition_loc.start.cnum,
     condition_loc.end.cnum,
@@ -262,7 +262,7 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
     condition_loc.start.column(),
   )
   self.record_range(
-    Boolean,
+    Conditional,
     "false",
     condition_loc.start.cnum,
     condition_loc.end.cnum,

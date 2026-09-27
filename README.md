@@ -23,10 +23,10 @@ The project currently uses:
 The current vertical slice covers common expression mutations:
 
 - comparisons: `== ↔ !=`, `> → <`, `< → >`, `>= → <`, `<= → >`
-- boolean logic: `&& ↔ ||`
+- boolean logic (`boolean` group): `&& ↔ ||`
 - arithmetic: `+ ↔ -`, `* ↔ /`
-- boolean literals: `true ↔ false`
-- if conditions: `cond → true`, `cond → false`
+- boolean literals (`literal` group): `true ↔ false`
+- if conditions (`conditional` group): `cond → true`, `cond → false`
 
 Comments, strings, character literals, test files (`*_test.mbt`, `*_wbtest.mbt`), generated/build directories, and function arrows are excluded by syntax rather than lexical heuristics. Proof/spec files (`*.mbtp`) are never scanned (they do not match `*.mbt`), but expressions inside inline proof regions of regular `.mbt` sources are not excluded — the parser boundary there is unverified, so exclude spec-heavy files with `turtles.toml` if needed. Mutations that make the program fail `moon check` are reported as **unviable**, rather than as killed tests.
 
@@ -84,13 +84,13 @@ If `turtles.toml` exists in the target MoonBit module root, turtles reads mutati
 ```toml
 include = ["src/", "lib/"]
 exclude = ["generated/", "vendor/"]
-operators = ["comparison", "boolean", "arithmetic", "literal"]
+operators = ["comparison", "boolean", "arithmetic", "literal", "conditional"]
 gates = ["check", "test"]
 ```
 
 - `include`: optional path substrings; when non-empty, at least one must match the normalized relative source path.
 - `exclude`: optional path substrings; matching sources are skipped.
-- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, and `literal`.
+- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, `literal`, and `conditional`. The `boolean` group selects only `&& ↔ ||`; whole `if`-condition replacements belong to `conditional`.
 - `gates`: optional ordered verification gates (see below). Defaults to `["check", "test"]`.
 - CLI `--file` remains an additional filter on top of `turtles.toml`.
 - Test files remain excluded by default and cannot be enabled through this configuration.
@@ -160,6 +160,6 @@ The real fixture E2E also validates schema-2 JSON report generation.
 
 ## Current scope
 
-The rewrite preserves the trustworthy MVP behavior while making MoonBit the implementation language end to end. Candidate discovery is driven by the pinned experimental parser AST; parser diagnostics abort discovery instead of triggering a lexical fallback. The current AST boundary covers the existing operator and boolean-literal mutations while preserving byte-accurate application and parser line/column reporting. See `docs/moonbit-parser.md`.
+The rewrite preserves the trustworthy MVP behavior while making MoonBit the implementation language end to end. Candidate discovery is driven by the pinned experimental parser AST; parser diagnostics abort discovery instead of triggering a lexical fallback. The current AST boundary covers the existing operator, boolean-literal, and if-condition mutations while preserving byte-accurate application and parser line/column reporting. See `docs/moonbit-parser.md`.
 
 Planned follow-ups include structural AST mutations, test selection, parallel workers, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.

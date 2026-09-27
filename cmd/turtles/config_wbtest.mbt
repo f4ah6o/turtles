@@ -34,4 +34,20 @@ test "operator aliases parse" {
     operator_group_from_string("boolean-literals") == Literal,
     content="true",
   )
+  inspect(
+    operator_group_from_string("conditional") == Conditional,
+    content="true",
+  )
+  inspect(
+    operator_group_from_string("condition") == Conditional,
+    content="true",
+  )
+  inspect(
+    operator_group_from_string("if-condition") == Conditional,
+    content="true",
+  )
+  inspect(
+    operator_group_from_string("if-conditions") == Conditional,
+    content="true",
+  )
 }
