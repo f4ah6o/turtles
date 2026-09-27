@@ -23,8 +23,9 @@ The current vertical slice covers common expression mutations:
 
 - comparisons: `== ↔ !=`, `> → <`, `< → >`, `>= → <`, `<= → >`
 - boolean logic: `&& ↔ ||`
-- arithmetic: `+ ↔ -`, `* ↔ /`
+- arithmetic: `+ ↔ -`, `* ↔ /`, unary `-x → +x`
 - boolean literals: `true ↔ false`
+- conditions: whole `if` conditions → `true` or `false`
 
 Comments, strings, character literals, test files (`*_test.mbt`, `*_wbtest.mbt`), generated/build directories, and function arrows are excluded by syntax rather than lexical heuristics. Mutations that make the program fail `moon check` are reported as **unviable**, rather than as killed tests.
 
@@ -72,7 +73,7 @@ Use `--json` to persist machine-readable results, including baseline duration, p
 moon run cmd/turtles -- --dir path/to/module --json target/turtles-report.json
 ```
 
-The JSON report currently uses schema version `1`.
+The JSON report currently uses schema version `1`. An empty mutation set still produces a schema-1 report with `mutants: []` and a real measured `baseline_duration_ms`; `--list` never runs tests.
 
 ## Configuration
 
@@ -81,12 +82,12 @@ If `turtles.toml` exists in the target MoonBit module root, turtles reads mutati
 ```toml
 include = ["src/", "lib/"]
 exclude = ["generated/", "vendor/"]
-operators = ["comparison", "boolean", "arithmetic", "literal"]
+operators = ["comparison", "boolean", "arithmetic", "literal", "condition"]
 ```
 
 - `include`: optional path substrings; when non-empty, at least one must match the normalized relative source path.
 - `exclude`: optional path substrings; matching sources are skipped.
-- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, and `literal`.
+- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, `literal`, and `condition` (whole-`if`-condition replacement). `boolean` covers only logical `&&`/`||`; selecting `condition` alone gives structural mutations without logical ones, and vice versa.
 - CLI `--file` remains an additional filter on top of `turtles.toml`.
 - Test files remain excluded by default and cannot be enabled through this configuration.
 
@@ -105,7 +106,11 @@ The process exits with code `1` when any mutant survives or times out, `2` for s
 
 ## Safety model
 
-Before mutation testing, `turtles` runs an unchanged `moon test` baseline. It then copies the module into a temporary directory, excluding `.git`, `target`, `_build`, `.mooncakes`, `.moon`, and `node_modules`. All mutations and test runs happen there. The temporary workspace is removed when the run finishes.
+Before mutation testing, `turtles` runs an unchanged `moon test` baseline in the target module. The module is then copied into a temporary directory, excluding `.git`, `target`, `_build`, `.mooncakes`, `.moon`, and `node_modules`. The copy keeps executable bits on regular files and recreates symlinks that resolve inside the module as links; symlinks that point outside the module are dereference-copied so writes cannot escape the workspace, and dangling links are a hard error.
+
+From that first copy, `turtles` keeps a pristine `reference` tree and validates an unchanged `validation` copy by running `moon check` and `moon test` on it — a failure there is a setup error, not a mutant outcome. Each mutant then runs in its own `mutant-N` workspace copied fresh from `reference`, so filesystem state written by earlier runs (sentinels, caches, generated files) cannot leak into later classifications and mutant order cannot change results. The temporary directory is removed when the run finishes.
+
+On Windows, symlinks require privilege elevation and are dereference-copied instead of recreated.
 
 ## Development
 
@@ -126,4 +131,4 @@ The real fixture E2E also validates schema-1 JSON report generation.
 
 The rewrite preserves the trustworthy MVP behavior while making MoonBit the implementation language end to end. Candidate discovery is driven by the pinned experimental parser AST; parser diagnostics abort discovery instead of triggering a lexical fallback. The current AST boundary covers the existing operator and boolean-literal mutations while preserving byte-accurate application and parser line/column reporting. See `docs/moonbit-parser.md`.
 
-Planned follow-ups include structural AST mutations, test selection, parallel workers, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.
+Planned follow-ups include test selection, parallel workers (the per-mutant workspace layout is already parallel-safe), survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution.

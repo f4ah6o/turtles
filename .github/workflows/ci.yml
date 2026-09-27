@@ -23,6 +23,10 @@ jobs:
         run: moon test --target native
       - name: Run fixture baseline
         run: moon -C fixtures/basic test
+      - name: Run isolation fixture baseline
+        run: moon -C fixtures/isolation test
+      - name: Run empty fixture baseline
+        run: moon -C fixtures/empty test
       - name: Run turtles against fixture
         run: |
           report="$RUNNER_TEMP/turtles-report.json"
@@ -47,4 +51,44 @@ jobs:
           assert report["summary"]["survived"] == 0
           assert report["summary"]["timeout"] == 0
           assert all("duration_ms" in mutant for mutant in report["mutants"])
+          PY
+      - name: Run turtles against isolation fixture
+        run: |
+          report="$RUNNER_TEMP/turtles-isolation-report.json"
+          status=0
+          moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --json "$report" || status=$?
+          test "$status" -eq 1
+          python - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          summary = report["summary"]
+          assert summary["killed"] == 3, summary
+          assert summary["survived"] == 3, summary
+          assert summary["unviable"] == 0, summary
+          assert summary["timeout"] == 0, summary
+          PY
+      - name: Emit JSON report for empty candidate sets
+        run: |
+          report="$RUNNER_TEMP/turtles-empty-report.json"
+          moon run cmd/turtles -- --dir fixtures/empty --json "$report"
+          filtered="$RUNNER_TEMP/turtles-filtered-report.json"
+          moon run cmd/turtles -- --dir fixtures/basic --file no-such-source --json "$filtered"
+          python - "$report" "$filtered" <<'PY'
+          import json
+          import sys
+
+          for path in sys.argv[1:]:
+              with open(path, encoding="utf-8") as handle:
+                  report = json.load(handle)
+              assert report["schema"] == 1
+              assert report["mutants"] == []
+              assert report["summary"]["killed"] == 0
+              assert report["summary"]["survived"] == 0
+              assert report["summary"]["timeout"] == 0
+              assert report["summary"]["unviable"] == 0
+              assert report["baseline_duration_ms"] >= 0
           PY

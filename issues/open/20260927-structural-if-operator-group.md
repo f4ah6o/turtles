@@ -1,6 +1,6 @@
 # Separate structural if-condition mutations from the boolean-logic operator group
 
-- Status: open
+- Status: implemented
 - GitHub issue: #8
 - Origin: PR #5 post-merge review
 - Affected area: `cmd/turtles/types.mbt`, `cmd/turtles/scanner.mbt`, config tests, README
