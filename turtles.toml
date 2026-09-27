@@ -1,0 +1,17 @@
+# turtles self-verification configuration.
+#
+# `moon run cmd/turtles -- --dir .` mutates turtles' own production sources
+# under cmd/turtles/ and classifies each mutant through the gates below.
+# Test files (*_test.mbt, *_wbtest.mbt) are never mutated; the QuickCheck
+# property suite and the unit tests kill mutants at the "test" gate.
+#
+# The "self-e2e" gate rebuilds the *mutated* turtles binary inside the copied
+# workspace and runs it against fixtures/basic — never "." — so self-mutation
+# can never recurse. It builds and runs the whole fixture sweep, so give the
+# outer run room: use --timeout 300 or higher.
+include = ["cmd/turtles/"]
+gates = [
+  "check",
+  "test",
+  "self-e2e=sh scripts/self_e2e.sh",
+]

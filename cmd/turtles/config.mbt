@@ -12,6 +12,7 @@ fn print_help() -> Unit {
       #|      --file <TEXT>      Only mutate source paths containing TEXT
       #|      --json <PATH>      Write a JSON report to PATH
       #|      --list             List mutations without running tests
+      #|      --prove            Append a 'moon prove' gate (requires Why3)
       #|  -h, --help             Print help
     ),
   )
@@ -23,6 +24,7 @@ fn parse_args() -> Config raise {
   let mut dir = "."
   let mut timeout_ms = 60000
   let mut list = false
+  let mut prove = false
   let mut file_filter : String? = None
   let mut json_report : String? = None
   let mut i = 1
@@ -58,11 +60,12 @@ fn parse_args() -> Config raise {
         json_report = Some(args[i])
       }
       "--list" => list = true
+      "--prove" => prove = true
       other => fail("unknown argument: \{other} (try --help)")
     }
     i = i + 1
   }
-  { dir, timeout_ms, list, file_filter, json_report, }
+  { dir, timeout_ms, list, prove, file_filter, json_report, }
 }
 
 ///|
@@ -214,15 +217,78 @@ fn config_parse_string_array(
 }
 
 ///|
+/// Split a gate command line on ASCII whitespace. Quoting is intentionally
+/// unsupported: gate commands are simple program-plus-arguments pipelines.
+fn split_command(command : String) -> Array[String] {
+  let bytes = @utf8.encode(command)
+  let tokens : Array[String] = []
+  let mut start = -1
+  let mut i = 0
+  while i <= bytes.length() {
+    if i == bytes.length() || config_is_space(bytes[i]) {
+      if start >= 0 {
+        tokens.push(@utf8.decode_lossy(bytes[start:i]))
+        start = -1
+      }
+    } else if start < 0 {
+      start = i
+    }
+    i = i + 1
+  }
+  tokens
+}
+
+///|
+/// Resolve a gate spec from turtles.toml: either a builtin name mapped to
+/// `moon <name>` ("check", "test", "prove") or "name=program args..." for a
+/// custom verification command run inside the mutated workspace.
+fn gate_from_spec(spec : String) -> Gate raise {
+  let bytes = @utf8.encode(spec)
+  let mut separator = -1
+  let mut i = 0
+  while i < bytes.length() {
+    if bytes[i] == b'=' {
+      separator = i
+      break
+    }
+    i = i + 1
+  }
+  if separator < 0 {
+    match spec {
+      "check" | "test" | "prove" => return moon_gate(spec)
+      _ =>
+        fail(
+          "unknown gate \{spec}; expected check, test, prove, or name=command",
+        )
+    }
+  }
+  guard separator > 0 && separator + 1 < bytes.length() else {
+    fail("invalid gate spec \{spec}; expected name=command")
+  }
+  let name = @utf8.decode(bytes[:separator])
+  let tokens = split_command(@utf8.decode(bytes[separator + 1:]))
+  guard tokens.length() > 0 else {
+    fail("gate \{name} has an empty command")
+  }
+  let args : Array[String] = []
+  for i in 1..<tokens.length() {
+    args.push(tokens[i])
+  }
+  { name, program: tokens[0], args }
+}
+
+///|
 fn parse_project_config(source : String) -> ProjectConfig raise {
   let bytes = @utf8.encode(source)
   let position = Ref(0)
   let include_patterns : Array[String] = []
   let exclude_patterns : Array[String] = []
   let operators : Array[OperatorGroup] = []
+  let gates : Array[Gate] = []
   let mut operators_set = false
   let mut include_set = false
   let mut exclude_set = false
+  let mut gates_set = false
   while true {
     config_skip_space_and_comments(bytes, position)
     if position.val >= bytes.length() {
@@ -261,12 +327,33 @@ fn parse_project_config(source : String) -> ProjectConfig raise {
           operators.push(operator_group_from_string(value))
         }
       }
+      "gates" => {
+        guard !gates_set else {
+          fail(config_error(bytes, position.val, "duplicate gates key"))
+        }
+        gates_set = true
+        for value in values {
+          gates.push(gate_from_spec(value) catch {
+            error =>
+              fail(
+                config_error(
+                  bytes,
+                  position.val,
+                  "invalid gate \{value}: \{error}",
+                ),
+              )
+          })
+        }
+        guard !gates.is_empty() else {
+          fail(config_error(bytes, position.val, "gates must not be empty"))
+        }
+      }
       other =>
         fail(
           config_error(
             bytes,
             position.val,
-            "unknown key \{other}; expected include, exclude, or operators",
+            "unknown key \{other}; expected include, exclude, gates, or operators",
           ),
         )
     }
@@ -276,6 +363,11 @@ fn parse_project_config(source : String) -> ProjectConfig raise {
     exclude_patterns,
     operators: if operators_set {
       Some(operators)
+    } else {
+      None
+    },
+    gates: if gates_set {
+      Some(gates)
     } else {
       None
     },

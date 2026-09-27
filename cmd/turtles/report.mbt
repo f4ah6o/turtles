@@ -26,9 +26,19 @@ fn mutation_score(killed : Int, survived : Int, timeout : Int) -> Double {
 }
 
 ///|
+fn exit_code_for(survived : Int, timeout : Int) -> Int {
+  if survived > 0 || timeout > 0 {
+    1
+  } else {
+    0
+  }
+}
+
+///|
 async fn write_json_report(
   path : String,
   root : String,
+  gates : Array[String],
   baseline_duration_ms : Int64,
   results : Array[MutationResult],
   score : Double,
@@ -42,13 +52,15 @@ async fn write_json_report(
       original: result.mutation.original,
       replacement: result.mutation.replacement,
       outcome: outcome_name(result.outcome),
+      gate: result.gate,
       duration_ms: result.duration_ms,
     })
   }
   let counts = count_outcomes(results)
   let report : JsonReport = {
-    schema: 1,
+    schema: 2,
     module_path: root,
+    gates,
     baseline_duration_ms,
     mutants,
     summary: {

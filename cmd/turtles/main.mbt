@@ -4,6 +4,13 @@ async fn execute() -> Int {
   let root = @fs.realpath(config.dir)
   ensure_moonbit_module(root)
   let project_config = load_project_config(root)
+  let gates = match project_config.gates {
+    Some(configured) => configured
+    None => default_gates()
+  }
+  if config.prove && !gates_has_name(gates, "prove") {
+    gates.push(moon_gate("prove"))
+  }
   let mutations = discover_mutations(root, config.file_filter, project_config)
   if mutations.is_empty() {
     println("No mutations found.")
@@ -11,6 +18,7 @@ async fn execute() -> Int {
   }
 
   println("Found \{mutations.length()} mutation(s).")
+  println("Gates: \{describe_gates(gates)}")
   if config.list {
     for mutation in mutations {
       println(describe_mutation(mutation))
@@ -29,7 +37,7 @@ async fn execute() -> Int {
     CommandTimeout => fail("baseline test suite timed out")
   }
 
-  let results = run_mutations(root, mutations, config.timeout_ms)
+  let results = run_mutations(root, mutations, gates, config.timeout_ms)
   let counts = count_outcomes(results)
   let score = mutation_score(counts.0, counts.1, counts.2)
   println("")
@@ -42,17 +50,20 @@ async fn execute() -> Int {
 
   match config.json_report {
     Some(path) => {
-      write_json_report(path, root, baseline_duration_ms, results, score)
+      write_json_report(
+        path,
+        root,
+        gate_names(gates),
+        baseline_duration_ms,
+        results,
+        score,
+      )
       println("  json:      \{path}")
     }
     None => ()
   }
 
-  if counts.1 > 0 || counts.2 > 0 {
-    1
-  } else {
-    0
-  }
+  exit_code_for(counts.1, counts.2)
 }
 
 ///|
