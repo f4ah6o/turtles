@@ -156,7 +156,7 @@ test "quickcheck: count_outcomes partitions every result" {
       let mut expected_unviable = 0
       for code in codes {
         let outcome = qc_outcome(code)
-        results.push({ mutation, outcome, gate: None, duration_ms: 0L })
+        results.push({ mutation, outcome, gate: None, duration_ms: 0L, })
         match outcome {
           Killed => expected_killed = expected_killed + 1
           Survived => expected_survived = expected_survived + 1

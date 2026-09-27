@@ -16,12 +16,9 @@ test "named gate specs split command lines" {
   )
   inspect(gate.name, content="self-e2e")
   inspect(gate.program, content="moon")
-  json_inspect(
-    gate.args,
-    content=[
-      "run", "cmd/turtles", "--", "--dir", "fixtures/basic", "--timeout", "60",
-    ],
-  )
+  json_inspect(gate.args, content=[
+    "run", "cmd/turtles", "--", "--dir", "fixtures/basic", "--timeout", "60",
+  ])
 }
 
 ///|
@@ -96,11 +93,11 @@ test "count_outcomes tallies each outcome" {
     replacement: "",
   }
   let results : Array[MutationResult] = [
-    { mutation, outcome: Killed, gate: Some("test"), duration_ms: 1L },
-    { mutation, outcome: Survived, gate: None, duration_ms: 2L },
-    { mutation, outcome: Timeout, gate: Some("prove"), duration_ms: 3L },
-    { mutation, outcome: Unviable, gate: Some("check"), duration_ms: 4L },
-    { mutation, outcome: Killed, gate: Some("self-e2e"), duration_ms: 5L },
+    { mutation, outcome: Killed, gate: Some("test"), duration_ms: 1L, },
+    { mutation, outcome: Survived, gate: None, duration_ms: 2L, },
+    { mutation, outcome: Timeout, gate: Some("prove"), duration_ms: 3L, },
+    { mutation, outcome: Unviable, gate: Some("check"), duration_ms: 4L, },
+    { mutation, outcome: Killed, gate: Some("self-e2e"), duration_ms: 5L, },
   ]
   let counts = count_outcomes(results)
   inspect(counts.0, content="2")

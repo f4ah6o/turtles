@@ -33,7 +33,7 @@ struct Gate {
 
 ///|
 fn moon_gate(name : String) -> Gate {
-  { name, program: "moon", args: [name] }
+  { name, program: "moon", args: [name], }
 }
 
 ///|
@@ -85,12 +85,7 @@ struct ProjectConfig {
 
 ///|
 fn default_project_config() -> ProjectConfig {
-  {
-    include_patterns: [],
-    exclude_patterns: [],
-    operators: None,
-    gates: None,
-  }
+  { include_patterns: [], exclude_patterns: [], operators: None, gates: None, }
 }
 
 ///|

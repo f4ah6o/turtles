@@ -267,14 +267,12 @@ fn gate_from_spec(spec : String) -> Gate raise {
   }
   let name = @utf8.decode(bytes[:separator])
   let tokens = split_command(@utf8.decode(bytes[separator + 1:]))
-  guard tokens.length() > 0 else {
-    fail("gate \{name} has an empty command")
-  }
+  guard tokens.length() > 0 else { fail("gate \{name} has an empty command") }
   let args : Array[String] = []
   for i in 1..<tokens.length() {
     args.push(tokens[i])
   }
-  { name, program: tokens[0], args }
+  { name, program: tokens[0], args, }
 }
 
 ///|
@@ -333,16 +331,18 @@ fn parse_project_config(source : String) -> ProjectConfig raise {
         }
         gates_set = true
         for value in values {
-          gates.push(gate_from_spec(value) catch {
-            error =>
-              fail(
-                config_error(
-                  bytes,
-                  position.val,
-                  "invalid gate \{value}: \{error}",
-                ),
-              )
-          })
+          gates.push(
+            gate_from_spec(value) catch {
+              error =>
+                fail(
+                  config_error(
+                    bytes,
+                    position.val,
+                    "invalid gate \{value}: \{error}",
+                  ),
+                )
+            },
+          )
         }
         guard !gates.is_empty() else {
           fail(config_error(bytes, position.val, "gates must not be empty"))
