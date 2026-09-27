@@ -6,11 +6,9 @@ async fn run_moon_command(
 ) -> CommandResult {
   // Nested moon output must not reach our own stdout: when turtles runs
   // inside `moon test`, subprocess output interleaves with the test driver
-  // protocol and corrupts result parsing.
-  let output = @process.redirect_to_file(
-    path_join(root, "moon-output.log"),
-    shared=true,
-  )
+  // protocol and corrupts result parsing. The log lives next to the
+  // workspace so the copied tree stays pristine.
+  let output = @process.redirect_to_file(root + "-moon-output.log")
   let exit_code = @async.with_timeout_opt(timeout_ms, () => {
     @process.run(
       "moon",
