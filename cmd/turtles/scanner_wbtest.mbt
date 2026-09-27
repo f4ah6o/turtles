@@ -329,6 +329,108 @@ test "parser failure does not fall back to lexical scanning" {
 }
 
 ///|
+test "utf8 boundaries cover every width" {
+  let bytes = @utf8.encode("aé日😀b")
+  inspect(utf8_width(bytes[0]), content="1")
+  inspect(utf8_width(bytes[1]), content="2")
+  inspect(utf8_width(bytes[3]), content="3")
+  inspect(utf8_width(bytes[6]), content="4")
+  json_inspect(source_byte_boundaries(bytes), content=[0, 1, 3, 6, 10, 11])
+  inspect(source_byte_offset(source_byte_boundaries(bytes), 3), content="6")
+}
+
+///|
+test "mutation identity compares every field" {
+  let base : Mutation = {
+    path: "a.mbt",
+    start: 1,
+    end: 2,
+    line: 3,
+    column: 4,
+    group: Comparison,
+    original: "x",
+    replacement: "y",
+  }
+  assert_true(same_mutation_identity(base, base))
+  for
+    changed in [
+      { ..base, path: "b.mbt", },
+      { ..base, start: 0, },
+      { ..base, end: 5, },
+      { ..base, replacement: "z", },
+    ] {
+    assert_false(same_mutation_identity(base, changed))
+  }
+  assert_true(
+    same_mutation_identity(base, {
+      ..base,
+      line: 9,
+      column: 9,
+      group: Literal,
+      original: "q",
+    }),
+  )
+}
+
+///|
+test "operator filtering applies to scanned candidates" {
+  let source = "fn f(a : Int, b : Int) -> Bool { a == b || a > b }"
+  let boolean_only = parse_project_config("operators = [\"boolean\"]")
+  let mutations = scan_source("s.mbt", source, boolean_only)
+  inspect(mutations.length(), content="1")
+  inspect(mutations[0].original, content="||")
+  let comparison_only = parse_project_config("operators = [\"comparison\"]")
+  let comparisons = scan_source("s.mbt", source, comparison_only)
+  inspect(comparisons.length(), content="2")
+}
+
+///|
+test "apply_mutation validates offsets and source text" {
+  let source = "fn f() -> Int { 1 }"
+  let base : Mutation = {
+    path: "f.mbt",
+    start: 16,
+    end: 17,
+    line: 1,
+    column: 17,
+    group: Arithmetic,
+    original: "1",
+    replacement: "2",
+  }
+  inspect(apply_mutation(source, base), content="fn f() -> Int { 2 }")
+  for
+    bad in [
+      { ..base, start: -1, },
+      { ..base, start: 17, end: 16, },
+      { ..base, end: 1000, },
+      { ..base, original: "9", },
+    ] {
+    let mut raised = false
+    try ignore(apply_mutation(source, bad)) catch {
+      _ => raised = true
+    } noraise {
+      _ => ()
+    }
+    assert_true(raised)
+  }
+}
+
+///|
+test "describe_mutation renders path, position, and replacement" {
+  let mutation : Mutation = {
+    path: "a/b.mbt",
+    start: 0,
+    end: 1,
+    line: 3,
+    column: 7,
+    group: Comparison,
+    original: "+",
+    replacement: "-",
+  }
+  inspect(describe_mutation(mutation), content="a/b.mbt:3:7: + -> -")
+}
+
+///|
 test "existing fixture candidate parity" {
   let source =
     #|pub fn add(a : Int, b : Int) -> Int {

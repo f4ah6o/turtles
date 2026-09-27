@@ -18,8 +18,7 @@ fn print_help() -> Unit {
 }
 
 ///|
-fn parse_args() -> Config raise {
-  let args = @env.args()
+fn parse_args(args : Array[String]) -> Config raise {
   let mut dir = "."
   let mut timeout_ms = 60000
   let mut list = false

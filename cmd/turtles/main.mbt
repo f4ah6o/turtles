@@ -1,6 +1,11 @@
 ///|
 async fn execute() -> Int {
-  let config = parse_args()
+  let config = parse_args(@env.args())
+  execute_with_config(config)
+}
+
+///|
+async fn execute_with_config(config : Config) -> Int {
   let root = @fs.realpath(config.dir)
   ensure_moonbit_module(root)
   let project_config = load_project_config(root)
@@ -40,7 +45,12 @@ async fn execute() -> Int {
     None => ()
   }
 
-  if counts.1 > 0 || counts.2 > 0 {
+  summary_exit_code(counts.1, counts.2)
+}
+
+///|
+fn summary_exit_code(survived : Int, timeout : Int) -> Int {
+  if survived > 0 || timeout > 0 {
     1
   } else {
     0
