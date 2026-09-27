@@ -37,12 +37,12 @@ async test "mutant ordering does not change classifications" {
       default_project_config(),
     )
     inspect(mutations.length(), content="2")
-    let forward = run_mutations(module_dir, mutations, 120000)
+    let (_, forward) = run_mutations(module_dir, mutations, 120000)
     let reversed : Array[Mutation] = []
     for i = mutations.length() - 1; i >= 0; i = i - 1 {
       reversed.push(mutations[i])
     }
-    let backward = run_mutations(module_dir, reversed, 120000)
+    let (_, backward) = run_mutations(module_dir, reversed, 120000)
     let mut mismatched = false
     for result in forward {
       for other in backward {

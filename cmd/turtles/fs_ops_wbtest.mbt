@@ -14,7 +14,7 @@ async fn make_module_tree(dir : String) -> Unit {
 }
 
 ///|
-async test "copied regular files preserve the executable bit" {
+async test "copied regular files preserve permission bits" {
   let temp = @fs.tmpdir(prefix="turtles-test")
   @async.with_task_group(group => {
     group.add_defer(() => @fs.rmdir(temp, recursive=true))
@@ -25,16 +25,21 @@ async test "copied regular files preserve the executable bit" {
       "#!/bin/sh\necho helper-ok\n",
       permission=0o755,
     )
+    @fs.write_file(
+      path_join(source, "locked.txt"),
+      "do not write\n",
+      permission=0o444,
+    )
+    write_file(path_join(source, "data.txt"), "plain")
     let workspace = path_join(temp, "workspace")
     @fs.mkdir(workspace, recursive=true)
     copy_tree(source, source, workspace)
     let copied = path_join(workspace, "helper.sh")
     assert_true(@fs.can_execute(copied))
     assert_eq(@fs.read_file(copied).text(), "#!/bin/sh\necho helper-ok\n")
-    let data = path_join(source, "data.txt")
-    write_file(data, "plain")
-    copy_tree(source, source, workspace)
     assert_true(!@fs.can_execute(path_join(workspace, "data.txt")))
+    assert_true(!@fs.can_write(path_join(workspace, "locked.txt")))
+    assert_true(@fs.can_write(path_join(workspace, "data.txt")))
   })
 }
 

@@ -29,7 +29,7 @@ async fn classify_mutant(root : String, timeout_ms : Int) -> Outcome {
 }
 
 ///|
-/// Run the unchanged copy before classifying mutants: divergence between the
+/// Run an unchanged copy before classifying mutants: divergence between the
 /// original module and its temporary workspace is a setup error, not mutant
 /// evidence.
 async fn validate_workspace(workspace : String, timeout_ms : Int) -> Unit {
@@ -54,14 +54,15 @@ async fn validate_workspace(workspace : String, timeout_ms : Int) -> Unit {
 }
 
 ///|
-/// Every mutant runs in a fresh workspace copied from a pristine reference so
-/// filesystem side effects produced by `moon check`, `moon test`, or the test
-/// suite itself can never leak into later classifications.
+/// The `reference` tree is snapshotted before any test runs and the baseline
+/// executes on a disposable copy of it, so baseline side effects cannot leak
+/// into mutants and the module's working tree is never touched. Every mutant
+/// then runs in a fresh workspace copied from the same pristine reference.
 async fn run_mutations(
   root : String,
   mutations : Array[Mutation],
   timeout_ms : Int,
-) -> Array[MutationResult] {
+) -> (Int64, Array[MutationResult]) {
   let root = @fs.realpath(root)
   let temp = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
@@ -69,12 +70,14 @@ async fn run_mutations(
     let reference = path_join(temp, "reference")
     @fs.mkdir(reference, recursive=true)
     copy_tree(root, root, reference)
-    let validation = path_join(temp, "validation")
-    @fs.mkdir(validation, recursive=true)
-    copy_tree(reference, reference, validation)
-    println("Workspace: validating pristine copy ...")
-    validate_workspace(validation, timeout_ms)
-    println("Workspace: ok")
+    let baseline = path_join(temp, "baseline")
+    @fs.mkdir(baseline, recursive=true)
+    copy_tree(reference, reference, baseline)
+    println("Baseline: moon check + moon test on pristine copy ...")
+    let started = @async.now()
+    validate_workspace(baseline, timeout_ms)
+    let baseline_duration_ms = @async.now() - started
+    println("Baseline: ok")
     let results : Array[MutationResult] = []
     let mut index = 0
     for mutation in mutations {
@@ -97,6 +100,6 @@ async fn run_mutations(
         _ => ()
       }
     }
-    results
+    (baseline_duration_ms, results)
   }
 }

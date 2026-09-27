@@ -73,7 +73,7 @@ Use `--json` to persist machine-readable results, including baseline duration, p
 moon run cmd/turtles -- --dir path/to/module --json target/turtles-report.json
 ```
 
-The JSON report currently uses schema version `1`. An empty mutation set still produces a schema-1 report with `mutants: []` and a real measured `baseline_duration_ms`; `--list` never runs tests.
+The JSON report currently uses schema version `1`. An empty mutation set still produces a schema-1 report with `mutants: []` and a real measured `baseline_duration_ms` (the `moon check` + `moon test` validation run on the pristine workspace copy); `--list` never runs tests.
 
 ## Configuration
 
@@ -88,6 +88,7 @@ operators = ["comparison", "boolean", "arithmetic", "literal", "condition"]
 - `include`: optional path substrings; when non-empty, at least one must match the normalized relative source path.
 - `exclude`: optional path substrings; matching sources are skipped.
 - `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, `literal`, and `condition` (whole-`if`-condition replacement). `boolean` covers only logical `&&`/`||`; selecting `condition` alone gives structural mutations without logical ones, and vice versa.
+
 - CLI `--file` remains an additional filter on top of `turtles.toml`.
 - Test files remain excluded by default and cannot be enabled through this configuration.
 
@@ -106,9 +107,9 @@ The process exits with code `1` when any mutant survives or times out, `2` for s
 
 ## Safety model
 
-Before mutation testing, `turtles` runs an unchanged `moon test` baseline in the target module. The module is then copied into a temporary directory, excluding `.git`, `target`, `_build`, `.mooncakes`, `.moon`, and `node_modules`. The copy keeps executable bits on regular files and recreates symlinks that resolve inside the module as links; symlinks that point outside the module are dereference-copied so writes cannot escape the workspace, and dangling links are a hard error.
+`turtles` never runs tests in the module's working tree. The module is copied into a temporary directory, excluding `.git`, `target`, `_build`, `.mooncakes`, `.moon`, and `node_modules`. The copy keeps the caller's read/write/execute permissions on files and directories and recreates symlinks that resolve inside the module as links; symlinks that point outside the module are dereference-copied so writes cannot escape the workspace, and dangling links are a hard error.
 
-From that first copy, `turtles` keeps a pristine `reference` tree and validates an unchanged `validation` copy by running `moon check` and `moon test` on it — a failure there is a setup error, not a mutant outcome. Each mutant then runs in its own `mutant-N` workspace copied fresh from `reference`, so filesystem state written by earlier runs (sentinels, caches, generated files) cannot leak into later classifications and mutant order cannot change results. The temporary directory is removed when the run finishes.
+The first copy is a pristine `reference` tree, snapshotted before any test executes. The baseline runs `moon check` and `moon test` on a disposable `baseline` copy of that reference — a failure there is a setup error, not a mutant outcome — so state written by the baseline cannot leak into mutants either. Each mutant then runs in its own `mutant-N` workspace copied fresh from `reference`, so filesystem state written by earlier runs (sentinels, caches, generated files) cannot leak into later classifications and mutant order cannot change results. The temporary directory is removed when the run finishes.
 
 On Windows, symlinks require privilege elevation and are dereference-copied instead of recreated.
 

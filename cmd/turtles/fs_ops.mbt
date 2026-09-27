@@ -85,12 +85,33 @@ async fn discover_mutations(
 }
 
 ///|
-/// Regular files keep their executable bit: the temporary workspace must
+/// The fs API exposes effective access but not raw mode bits, so copies keep
+/// the caller's read/write/execute rights — the only user a private temporary
+/// workspace serves. A read-only file stays unwritable and a private file
+/// stays private.
+async fn observed_permission(path : String) -> Int {
+  let read = @fs.can_read(path) catch { _ => false }
+  let write = @fs.can_write(path) catch { _ => false }
+  let execute = @fs.can_execute(path) catch { _ => false }
+  let mut permission = 0
+  if read {
+    permission = permission + 0o400
+  }
+  if write {
+    permission = permission + 0o200
+  }
+  if execute {
+    permission = permission + 0o100
+  }
+  permission
+}
+
+///|
+/// Regular files keep their permission bits: the temporary workspace must
 /// behave like the original module for baseline parity.
 async fn copy_regular_file(source : String, target : String) -> Unit {
+  let permission = observed_permission(source)
   let data = @fs.read_file(source)
-  let executable = @fs.can_execute(source) catch { _ => false }
-  let permission = if executable { 0o755 } else { 0o644 }
   @fs.write_file(target, data, permission~)
 }
 
@@ -107,7 +128,12 @@ async fn dereference_copy(
   if kind is Regular {
     copy_regular_file(source, target)
   } else if kind is Directory {
-    @fs.mkdir(target, recursive=true, allow_exist=true)
+    @fs.mkdir(
+      target,
+      permission=observed_permission(source),
+      recursive=true,
+      allow_exist=true,
+    )
     copy_tree(resolved, resolved, target)
   } else {
     fail("cannot preserve symbolic link \{relative}: unsupported target kind")
@@ -163,7 +189,12 @@ async fn copy_tree(
       }
       let relative = relative_path(root, source)
       let target = path_join(destination, relative)
-      @fs.mkdir(target, recursive=true, allow_exist=true)
+      @fs.mkdir(
+        target,
+        permission=observed_permission(source),
+        recursive=true,
+        allow_exist=true,
+      )
       copy_tree(root, source, destination)
     } else if kind is Regular {
       let relative = relative_path(root, source)

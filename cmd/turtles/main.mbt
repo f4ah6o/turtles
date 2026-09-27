@@ -17,22 +17,11 @@ async fn execute() -> Int {
     return 0
   }
 
-  println("Baseline: moon test ...")
-  let baseline_started = @async.now()
-  let baseline = run_moon_command(root, ["test"], config.timeout_ms)
-  let baseline_duration_ms = @async.now() - baseline_started
-  match baseline {
-    CommandSuccess => println("Baseline: ok")
-    CommandFailure =>
-      fail("baseline test suite failed; refusing to classify mutants")
-    CommandTimeout => fail("baseline test suite timed out")
-  }
-
-  let results = if mutations.is_empty() {
-    []
-  } else {
-    run_mutations(root, mutations, config.timeout_ms)
-  }
+  let (baseline_duration_ms, results) = run_mutations(
+    root,
+    mutations,
+    config.timeout_ms,
+  )
   let counts = count_outcomes(results)
   let score = mutation_score(counts.0, counts.1, counts.2)
   println("")

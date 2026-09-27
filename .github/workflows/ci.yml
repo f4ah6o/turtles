@@ -54,9 +54,6 @@ jobs:
           PY
       - name: Run turtles against isolation fixture
         run: |
-          # The fixture's sentinel test fails on a second run in the same
-          # directory by design; reset it before turtles' own baseline.
-          rm -f fixtures/isolation/turtles.sentinel
           report="$RUNNER_TEMP/turtles-isolation-report.json"
           status=0
           moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --json "$report" || status=$?
