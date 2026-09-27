@@ -7,10 +7,9 @@ async fn execute() -> Int {
   let mutations = discover_mutations(root, config.file_filter, project_config)
   if mutations.is_empty() {
     println("No mutations found.")
-    return 0
+  } else {
+    println("Found \{mutations.length()} mutation(s).")
   }
-
-  println("Found \{mutations.length()} mutation(s).")
   if config.list {
     for mutation in mutations {
       println(describe_mutation(mutation))
@@ -29,7 +28,11 @@ async fn execute() -> Int {
     CommandTimeout => fail("baseline test suite timed out")
   }
 
-  let results = run_mutations(root, mutations, config.timeout_ms)
+  let results = if mutations.is_empty() {
+    []
+  } else {
+    run_mutations(root, mutations, config.timeout_ms)
+  }
   let counts = count_outcomes(results)
   let score = mutation_score(counts.0, counts.1, counts.2)
   println("")
