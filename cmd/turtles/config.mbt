@@ -25,7 +25,14 @@ fn parse_args(args : Array[String]) -> Config raise {
   let mut file_filter : String? = None
   let mut json_report : String? = None
   let mut i = 1
+  // Every iteration must consume at least one argument, so the loop can run
+  // at most args.length() times; more steps means the cursor went backwards.
+  let mut steps = 0
   while i < args.length() {
+    steps = steps + 1
+    guard steps <= args.length() else {
+      fail("internal error: argument parser made no progress")
+    }
     let arg = args[i]
     match arg {
       "-h" | "--help" => {
@@ -149,7 +156,14 @@ fn config_parse_key(bytes : Bytes, position : Ref[Int]) -> String raise {
 fn config_parse_string(bytes : Bytes, position : Ref[Int]) -> String raise {
   config_expect(bytes, position, b'"')
   let output = @buffer.Buffer()
+  // Each iteration consumes at least one byte, so a step count beyond the
+  // input size means the cursor went backwards instead of advancing.
+  let mut steps = 0
   while position.val < bytes.length() {
+    steps = steps + 1
+    guard steps <= bytes.length() else {
+      fail(config_error(bytes, position.val, "unterminated string"))
+    }
     let byte = bytes[position.val]
     position.val = position.val + 1
     match byte {
