@@ -216,3 +216,19 @@ async test "load_project_config reads turtles.toml and defaults when absent" {
     assert_true(!config.operator_enabled(Arithmetic))
   })
 }
+
+///|
+test "config_parse_key accepts every key character class" {
+  let bytes = @utf8.encode("aZ9_- rest")
+  let position = Ref(0)
+  inspect(config_parse_key(bytes, position), content="aZ9_-")
+  inspect(position.val, content="5")
+}
+
+///|
+test "config string escapes decode and stay inside the quotes" {
+  let config = parse_project_config(
+    "include = [\"a\\\\b\", \"c\\\"d\", \"e\\n\"]",
+  )
+  json_inspect(config.include_patterns, content=["a\\b", "c\"d", "e\n"])
+}
