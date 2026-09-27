@@ -128,13 +128,11 @@ async fn dereference_copy(
   if kind is Regular {
     copy_regular_file(source, target)
   } else if kind is Directory {
-    @fs.mkdir(
-      target,
-      permission=observed_permission(source),
-      recursive=true,
-      allow_exist=true,
-    )
+    @fs.mkdir(target, recursive=true, allow_exist=true)
     copy_tree(resolved, resolved, target)
+    // Restore observed permissions only after contents are in place: a
+    // non-writable source directory must still accept its own copies.
+    @fs.chmod(target, observed_permission(source))
   } else {
     fail("cannot preserve symbolic link \{relative}: unsupported target kind")
   }
@@ -189,13 +187,12 @@ async fn copy_tree(
       }
       let relative = relative_path(root, source)
       let target = path_join(destination, relative)
-      @fs.mkdir(
-        target,
-        permission=observed_permission(source),
-        recursive=true,
-        allow_exist=true,
-      )
+      let observed = observed_permission(source)
+      @fs.mkdir(target, recursive=true, allow_exist=true)
       copy_tree(root, source, destination)
+      // Restore observed permissions only after contents are in place: a
+      // non-writable source directory must still accept its own copies.
+      @fs.chmod(target, observed)
     } else if kind is Regular {
       let relative = relative_path(root, source)
       let target = path_join(destination, relative)

@@ -44,6 +44,29 @@ async test "copied regular files preserve permission bits" {
 }
 
 ///|
+async test "read-only directories copy with their contents" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let source = path_join(temp, "source")
+    make_module_tree(source)
+    let locked_dir = path_join(source, "locked")
+    @fs.mkdir(locked_dir, recursive=true)
+    write_file(path_join(locked_dir, "inside.txt"), "content")
+    @fs.chmod(locked_dir, 0o555)
+    let workspace = path_join(temp, "workspace")
+    @fs.mkdir(workspace, recursive=true)
+    copy_tree(source, source, workspace)
+    let copied_dir = path_join(workspace, "locked")
+    assert_eq(
+      @fs.read_file(path_join(copied_dir, "inside.txt")).text(),
+      "content",
+    )
+    assert_true(!@fs.can_write(copied_dir))
+  })
+}
+
+///|
 #cfg(not(platform="windows"))
 async test "internal symlinks are recreated inside the workspace" {
   let temp = @fs.tmpdir(prefix="turtles-test")
