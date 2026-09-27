@@ -93,5 +93,5 @@ jobs:
               assert report["summary"]["survived"] == 0
               assert report["summary"]["timeout"] == 0
               assert report["summary"]["unviable"] == 0
-              assert report["baseline_duration_ms"] >= 0
+              assert int(report["baseline_duration_ms"]) >= 0
           PY
