@@ -34,4 +34,15 @@ test "operator aliases parse" {
     operator_group_from_string("boolean-literals") == Literal,
     content="true",
   )
+  inspect(operator_group_from_string("condition") == Condition, content="true")
+}
+
+///|
+test "boolean-logic does not enable structural condition mutations" {
+  let config = parse_project_config("operators = [\"boolean-logic\"]")
+  inspect(config.operator_enabled(Boolean), content="true")
+  inspect(config.operator_enabled(Condition), content="false")
+  let condition_config = parse_project_config("operators = [\"conditions\"]")
+  inspect(condition_config.operator_enabled(Condition), content="true")
+  inspect(condition_config.operator_enabled(Boolean), content="false")
 }

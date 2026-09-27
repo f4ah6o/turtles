@@ -245,6 +245,35 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Constant(
 }
 
 ///|
+/// For `Expr::Unary` the parser tags `op` with the location of the whole
+/// expression (e.g. `-x`), so the operator text occupies only the first
+/// `name` scalars of `op.loc`.
+impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_Unary(
+  self,
+  op~,
+  expr~,
+  loc~,
+) {
+  match op.name {
+    @syntax.LongIdent::Ident(name~) =>
+      self.record_operator(
+        name,
+        op.loc.start.cnum,
+        op.loc.start.cnum + name.char_length(),
+        op.loc.start.lnum,
+        op.loc.start.column(),
+      )
+    _ => ()
+  }
+  @syntax.IterVisitor::visit_Expr_Unary(
+    @syntax.IterVisitor::base(self),
+    op~,
+    expr~,
+    loc~,
+  )
+}
+
+///|
 impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
   self,
   cond~,
@@ -254,7 +283,7 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
 ) {
   let condition_loc = cond.loc()
   self.record_range(
-    Boolean,
+    Condition,
     "true",
     condition_loc.start.cnum,
     condition_loc.end.cnum,
@@ -262,7 +291,7 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
     condition_loc.start.column(),
   )
   self.record_range(
-    Boolean,
+    Condition,
     "false",
     condition_loc.start.cnum,
     condition_loc.end.cnum,

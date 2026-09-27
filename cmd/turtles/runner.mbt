@@ -29,19 +29,64 @@ async fn classify_mutant(root : String, timeout_ms : Int) -> Outcome {
 }
 
 ///|
+/// Run an unchanged copy before classifying mutants: divergence between the
+/// original module and its temporary workspace is a setup error, not mutant
+/// evidence.
+async fn validate_workspace(workspace : String, timeout_ms : Int) -> Unit {
+  match run_moon_command(workspace, ["check"], timeout_ms) {
+    CommandSuccess => ()
+    CommandFailure =>
+      fail(
+        "temporary workspace failed `moon check`; refusing to classify mutants",
+      )
+    CommandTimeout =>
+      fail("temporary workspace validation timed out during `moon check`")
+  }
+  match run_moon_command(workspace, ["test"], timeout_ms) {
+    CommandSuccess => ()
+    CommandFailure =>
+      fail(
+        "temporary workspace failed `moon test`; refusing to classify mutants",
+      )
+    CommandTimeout =>
+      fail("temporary workspace validation timed out during `moon test`")
+  }
+}
+
+///|
+/// The `reference` tree is snapshotted before any test runs and the baseline
+/// executes on a disposable copy of it, so baseline side effects cannot leak
+/// into mutants and the module's working tree is never touched. Every mutant
+/// then runs in a fresh workspace copied from the same pristine reference.
 async fn run_mutations(
   root : String,
   mutations : Array[Mutation],
   timeout_ms : Int,
-) -> Array[MutationResult] {
-  let workspace = @fs.tmpdir(prefix="turtles")
+) -> (Int64, Array[MutationResult]) {
+  let root = @fs.realpath(root)
+  let temp = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
-    group.add_defer(() => @fs.rmdir(workspace, recursive=true))
-    copy_tree(root, root, workspace)
+    group.add_defer(() => {
+      @async.protect_from_cancel(() => force_rmdir(temp) catch { _ => () })
+    })
+    let reference = path_join(temp, "reference")
+    @fs.mkdir(reference, recursive=true)
+    copy_tree(root, root, reference)
+    let baseline = path_join(temp, "baseline")
+    @fs.mkdir(baseline, recursive=true)
+    copy_tree(reference, reference, baseline)
+    println("Baseline: moon check + moon test on pristine copy ...")
+    let started = @async.now()
+    validate_workspace(baseline, timeout_ms)
+    let baseline_duration_ms = @async.now() - started
+    println("Baseline: ok")
     let results : Array[MutationResult] = []
     let mut index = 0
     for mutation in mutations {
       index = index + 1
+      let workspace = path_join(temp, "mutant-\{index}")
+      @fs.mkdir(workspace, recursive=true)
+      copy_tree(reference, reference, workspace)
       let target = path_join(workspace, mutation.path)
       let original_source = @fs.read_file(target).text()
       let mutated_source = apply_mutation(original_source, mutation)
@@ -49,12 +94,14 @@ async fn run_mutations(
       let started = @async.now()
       let outcome = classify_mutant(workspace, timeout_ms)
       let duration_ms = @async.now() - started
-      @fs.write_file(target, original_source)
       println(
         "[\{index}/\{mutations.length()}] \{outcome_name(outcome)} \{describe_mutation(mutation)}",
       )
       results.push({ mutation, outcome, duration_ms, })
+      force_rmdir(workspace) catch {
+        _ => ()
+      }
     }
-    results
+    (baseline_duration_ms, results)
   }
 }

@@ -1,6 +1,6 @@
 # Emit a JSON report when no mutations are discovered
 
-- Status: open
+- Status: implemented
 - GitHub issue: #10
 - Origin: PR #2 review, confirmed after MoonBit rewrite
 - Affected area: `cmd/turtles/main.mbt`, `cmd/turtles/report.mbt`, CI
