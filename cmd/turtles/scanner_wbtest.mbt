@@ -131,8 +131,7 @@ test "if conditions produce true and false replacements" {
 
 ///|
 test "boolean group excludes whole if condition mutations" {
-  let source =
-    "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 2 } }"
+  let source = "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 2 } }"
   let mutations = scan_source(
     "sample.mbt",
     source,
@@ -146,8 +145,7 @@ test "boolean group excludes whole if condition mutations" {
 
 ///|
 test "conditional group owns whole if condition mutations" {
-  let source =
-    "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 2 } }"
+  let source = "fn f(a : Bool, b : Bool) -> Int { if a && b { 1 } else { 2 } }"
   let mutations = scan_source(
     "sample.mbt",
     source,
