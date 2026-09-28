@@ -35,14 +35,31 @@ async test "mutant ordering does not change classifications" {
       module_dir,
       None,
       default_project_config(),
+      [],
     )
     inspect(mutations.length(), content="2")
-    let (_, forward) = run_mutations(module_dir, mutations, 120000, 2)
+    let (_, _, _, forward, _) = run_mutations(
+      module_dir,
+      mutations,
+      120000,
+      None,
+      2,
+      false,
+      Array::make(mutations.length(), None),
+    )
     let reversed : Array[Mutation] = []
     for i = mutations.length() - 1; i >= 0; i = i - 1 {
       reversed.push(mutations[i])
     }
-    let (_, backward) = run_mutations(module_dir, reversed, 120000, 1)
+    let (_, _, _, backward, _) = run_mutations(
+      module_dir,
+      reversed,
+      120000,
+      None,
+      1,
+      false,
+      Array::make(reversed.length(), None),
+    )
     let mut mismatched = false
     for result in forward {
       for other in backward {
@@ -76,10 +93,17 @@ async test "reported durations never exceed the wall clock" {
       module_dir,
       None,
       default_project_config(),
+      [],
     )
     let started = @async.now()
-    let (baseline_duration_ms, results) = run_mutations(
-      module_dir, mutations, 120000, 1,
+    let (baseline_duration_ms, _, _, results, _) = run_mutations(
+      module_dir,
+      mutations,
+      120000,
+      None,
+      1,
+      false,
+      Array::make(mutations.length(), None),
     )
     let elapsed = @async.now() - started
     assert_true(baseline_duration_ms <= elapsed)
@@ -103,6 +127,7 @@ async test "mutation pool bounds concurrency and preserves discovery order" {
       module_dir,
       None,
       default_project_config(),
+      [],
     )
     inspect(mutations.length(), content="2")
     let pool_dir = path_join(temp, "pool")
@@ -112,26 +137,27 @@ async test "mutation pool bounds concurrency and preserves discovery order" {
     copy_tree(module_dir, module_dir, reference)
     let in_flight = Ref(0)
     let max_in_flight = Ref(0)
-    let results = run_mutation_pool(pool_dir, reference, mutations, 3, 60000, (
-      workspace,
-      _timeout,
-    ) => {
-      in_flight.val = in_flight.val + 1
-      if in_flight.val > max_in_flight.val {
-        max_in_flight.val = in_flight.val
-      }
-      // mutant-1 is claimed first but sleeps longest, so completion order
-      // differs from claim order; the slot array still has to line results
-      // up with the mutation each workspace was built for.
-      let first = workspace.has_suffix("mutant-1")
-      @async.sleep(if first { 80 } else { 20 })
-      in_flight.val = in_flight.val - 1
-      if first {
-        Killed
-      } else {
-        Survived
-      }
-    })
+    let results = run_mutation_pool(
+      pool_dir,
+      reference,
+      mutations,
+      3,
+      Array::make(mutations.length(), None),
+      (_workspace, mutation) => {
+        in_flight.val = in_flight.val + 1
+        if in_flight.val > max_in_flight.val {
+          max_in_flight.val = in_flight.val
+        }
+        // The `+` mutant is claimed first but sleeps longest, so completion
+        // order differs from claim order; the slot array still has to line
+        // results up with the mutation each run was built for.
+        let first = mutation.original == "+"
+        @async.sleep(if first { 80 } else { 20 })
+        in_flight.val = in_flight.val - 1
+        let outcome = if first { Killed } else { Survived }
+        (outcome, None)
+      },
+    )
     inspect(results.length(), content="2")
     assert_true(max_in_flight.val > 1)
     assert_true(max_in_flight.val <= 3)
@@ -161,6 +187,7 @@ async test "jobs=1 keeps mutant runs sequential" {
       module_dir,
       None,
       default_project_config(),
+      [],
     )
     let pool_dir = path_join(temp, "pool")
     @fs.mkdir(pool_dir, recursive=true)
@@ -169,18 +196,22 @@ async test "jobs=1 keeps mutant runs sequential" {
     copy_tree(module_dir, module_dir, reference)
     let in_flight = Ref(0)
     let max_in_flight = Ref(0)
-    let results = run_mutation_pool(pool_dir, reference, mutations, 1, 60000, (
-      _workspace,
-      _timeout,
-    ) => {
-      in_flight.val = in_flight.val + 1
-      if in_flight.val > max_in_flight.val {
-        max_in_flight.val = in_flight.val
-      }
-      @async.sleep(20)
-      in_flight.val = in_flight.val - 1
-      Killed
-    })
+    let results = run_mutation_pool(
+      pool_dir,
+      reference,
+      mutations,
+      1,
+      Array::make(mutations.length(), None),
+      (_workspace, _mutation) => {
+        in_flight.val = in_flight.val + 1
+        if in_flight.val > max_in_flight.val {
+          max_in_flight.val = in_flight.val
+        }
+        @async.sleep(20)
+        in_flight.val = in_flight.val - 1
+        (Killed, None)
+      },
+    )
     inspect(max_in_flight.val, content="1")
     inspect(results.length(), content="2")
   })
@@ -200,6 +231,7 @@ async test "a failing mutant run fails the pool" {
       module_dir,
       None,
       default_project_config(),
+      [],
     )
     let pool_dir = path_join(temp, "pool")
     @fs.mkdir(pool_dir, recursive=true)
@@ -208,10 +240,17 @@ async test "a failing mutant run fails the pool" {
     copy_tree(module_dir, module_dir, reference)
     let mut raised = false
     ignore(
-      run_mutation_pool(pool_dir, reference, mutations, 2, 60000, (_w, _t) => {
-        @async.sleep(5)
-        fail("classifier exploded")
-      }),
+      run_mutation_pool(
+        pool_dir,
+        reference,
+        mutations,
+        2,
+        Array::make(mutations.length(), None),
+        (_w, _m) => {
+          @async.sleep(5)
+          fail("classifier exploded")
+        },
+      ),
     ) catch {
       _ => raised = true
     }
@@ -227,7 +266,7 @@ async test "pristine workspace validation failure aborts as a setup error" {
     let workspace = path_join(temp, "workspace")
     @fs.mkdir(workspace, recursive=true)
     let mut raised = false
-    validate_workspace(workspace, 30000) catch {
+    ignore(validate_workspace(workspace, 30000)) catch {
       _ => raised = true
     }
     assert_true(raised)

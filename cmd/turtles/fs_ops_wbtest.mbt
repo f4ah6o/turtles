@@ -1,7 +1,9 @@
 ///|
 test "build and VCS directories are skipped" {
   for
-    name in [".git", "target", "_build", ".mooncakes", ".moon", "node_modules"] {
+    name in [
+      ".git", "target", "_build", ".mooncakes", ".moon", ".turtles", "node_modules",
+    ] {
     assert_true(should_skip_dir(name))
   }
   for name in ["src", ".github", "targeted", "build", ".moonx"] {

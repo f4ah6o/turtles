@@ -188,6 +188,27 @@ test "parse_args reads every option" {
 }
 
 ///|
+test "parse_args reads iterate, affected, output-dir, timeout-multiplier" {
+  let config = parse_args([
+    "turtles", "--iterate", "--affected", "--output-dir", "out", "--timeout-multiplier",
+    "3",
+  ])
+  inspect(config.iterate, content="true")
+  inspect(config.affected, content="true")
+  inspect(config.output_dir.unwrap_or("none"), content="out")
+  inspect(config.timeout_multiplier.unwrap_or(-1.0), content="3")
+  inspect(parse_args(["turtles"]).iterate, content="false")
+  inspect(parse_args(["turtles"]).affected, content="false")
+  inspect(parse_args(["turtles"]).output_dir is None, content="true")
+  inspect(parse_args(["turtles"]).timeout_multiplier is None, content="true")
+  assert_true(parse_args_fails(["turtles", "--output-dir"]))
+  assert_true(parse_args_fails(["turtles", "--timeout-multiplier"]))
+  assert_true(parse_args_fails(["turtles", "--timeout-multiplier", "0"]))
+  assert_true(parse_args_fails(["turtles", "--timeout-multiplier", "-1"]))
+  assert_true(parse_args_fails(["turtles", "--timeout-multiplier", "abc"]))
+}
+
+///|
 test "parse_args reads jobs and fail-under" {
   let config = parse_args(["turtles", "--jobs", "4", "--fail-under", "80"])
   inspect(config.jobs, content="4")
