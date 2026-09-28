@@ -4,8 +4,20 @@ async fn run_moon_command(
   args : Array[String],
   timeout_ms : Int,
 ) -> CommandResult {
+  // Nested moon output must not reach our own stdout: when turtles runs
+  // inside `moon test`, subprocess output interleaves with the test driver
+  // protocol and corrupts result parsing. The log lives next to the
+  // workspace so the copied tree stays pristine.
+  let output = @process.redirect_to_file(root + "-moon-output.log")
   let exit_code = @async.with_timeout_opt(timeout_ms, () => {
-    @process.run("moon", args, cwd=root, cancel_handler=@process.hard_cancel())
+    @process.run(
+      "moon",
+      args,
+      cwd=root,
+      stdout=output,
+      stderr=output,
+      cancel_handler=@process.hard_cancel(),
+    )
   })
   match exit_code {
     None => CommandTimeout

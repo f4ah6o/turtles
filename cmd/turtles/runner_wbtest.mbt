@@ -65,6 +65,31 @@ async test "mutant ordering does not change classifications" {
 }
 
 ///|
+async test "reported durations never exceed the wall clock" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    write_order_fixture(module_dir)
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+    )
+    let started = @async.now()
+    let (baseline_duration_ms, results) = run_mutations(
+      module_dir, mutations, 120000,
+    )
+    let elapsed = @async.now() - started
+    assert_true(baseline_duration_ms <= elapsed)
+    for result in results {
+      assert_true(result.duration_ms <= elapsed)
+    }
+  })
+}
+
+///|
 async test "pristine workspace validation failure aborts as a setup error" {
   let temp = @fs.tmpdir(prefix="turtles-test")
   @async.with_task_group(group => {
