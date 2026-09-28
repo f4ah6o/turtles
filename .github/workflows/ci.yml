@@ -107,6 +107,13 @@ jobs:
           status=0
           moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --fail-under 101 || status=$?
           test "$status" -eq 2
+      - name: Smoke-test the installed binary
+        run: |
+          bin="$RUNNER_TEMP/turtles-bin"
+          moon install ./cmd/turtles --bin "$bin"
+          "$bin/turtles" --version
+          "$bin/turtles" --help
+          "$bin/turtles" --dir fixtures/basic --list
       - name: Emit JSON report for empty candidate sets
         run: |
           report="$RUNNER_TEMP/turtles-empty-report.json"
