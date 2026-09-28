@@ -7,7 +7,11 @@
 /// executables link (direct `-i` entries plus the transitively reachable
 /// closure over library edges). A mutant in package P is then classified by
 /// running only the tests of packages whose test targets can observe P.
-/// Any gap in resolution falls back to the full-module `moon test`.
+/// The plan is built in two passes: pass one records every fqn/dir/artifact
+/// mapping so `-i` imports resolve regardless of build-package line order;
+/// pass two resolves imports. An unresolved module-local `-i` invalidates
+/// the whole plan — a narrowed test set must never be silently computed
+/// from partial edges — and the caller falls back to `moon test`.
 struct TestPlan {
   /// package dir (relative to module root) -> package fqn
   dir_to_fqn : Map[String, String]
@@ -64,6 +68,17 @@ struct PlanBuilder {
   source_deps : Map[String, Map[String, Bool]]
   /// source dir -> direct dep dirs of its test executables
   test_deps : Map[String, Map[String, Bool]]
+  /// build-package records awaiting import resolution in pass two
+  pending : Array[PendingLine]
+}
+
+///|
+/// One `moonc build-package` line held for pass two: who owns it, whether
+/// it is a test target, and its raw `-i` entries.
+struct PendingLine {
+  owner : String
+  test_mode : Bool
+  imports : Array[String]
 }
 
 ///|
@@ -74,6 +89,7 @@ fn PlanBuilder::new() -> PlanBuilder {
     artifact_to_dir: Map([]),
     source_deps: Map([]),
     test_deps: Map([]),
+    pending: [],
   }
 }
 
@@ -198,21 +214,49 @@ fn PlanBuilder::record_line(self : PlanBuilder, line : String) -> Unit {
   guard pkg is Some(pkg_fqn) else { return }
   guard self.fqn_to_dir.get(pkg_fqn) is Some(owner_dir) else { return }
   self.record_artifact_mapping(output, owner_dir)
-  let table = if test_mode { self.test_deps } else { self.source_deps }
-  let deps = match table.get(owner_dir) {
-    Some(existing) => existing
-    None => {
-      let created : Map[String, Bool] = Map([])
-      table[owner_dir] = created
-      created
+  // Imports are resolved in pass two: an artifact's owner may only appear
+  // on a later build-package line.
+  self.pending.push({ owner: owner_dir, test_mode, imports, })
+}
+
+///|
+/// Pass two: map every queued `-i` import to a local source dir now that
+/// all artifact mappings are known. Artifacts outside `_build` are
+/// external deps — they can never observe a module-local mutant, so an
+/// unmappable external import is safely dropped. An unmappable `_build`
+/// import means a local edge was lost: the plan is invalidated rather
+/// than silently narrowed.
+fn PlanBuilder::resolve_imports(self : PlanBuilder) -> Bool {
+  for pending in self.pending {
+    let table = if pending.test_mode {
+      self.test_deps
+    } else {
+      self.source_deps
+    }
+    let deps = match table.get(pending.owner) {
+      Some(existing) => existing
+      None => {
+        let created : Map[String, Bool] = Map([])
+        table[pending.owner] = created
+        created
+      }
+    }
+    for entry in pending.imports {
+      match self.dep_dir_of_import(entry) {
+        Some(dir) => deps[dir] = true
+        None => {
+          let mi_path = match entry.rev_find(":") {
+            Some(colon) => entry[:colon].to_owned()
+            None => entry
+          }
+          if artifact_pkg_path(mi_path) is Some(_) {
+            return false
+          }
+        }
+      }
     }
   }
-  for entry in imports {
-    match self.dep_dir_of_import(entry) {
-      Some(dir) => deps[dir] = true
-      None => ()
-    }
-  }
+  true
 }
 
 ///|
@@ -249,7 +293,10 @@ fn reach_from(
 }
 
 ///|
-fn PlanBuilder::build(self : PlanBuilder) -> TestPlan {
+/// None means at least one module-local import could not be resolved —
+/// the honest answer is the module-wide test run, not a partial plan.
+fn PlanBuilder::build(self : PlanBuilder) -> TestPlan? {
+  guard self.resolve_imports() else { return None }
   let observables : Map[String, Map[String, Bool]] = Map([])
   for dir, _ in self.dir_to_fqn {
     let seeds : Map[String, Bool] = Map([])
@@ -263,7 +310,7 @@ fn PlanBuilder::build(self : PlanBuilder) -> TestPlan {
     }
     observables[dir] = reach_from(self.source_deps, seeds)
   }
-  { dir_to_fqn: self.dir_to_fqn, observables, }
+  Some({ dir_to_fqn: self.dir_to_fqn, observables, })
 }
 
 ///|
@@ -332,7 +379,9 @@ async fn load_test_plan(reference : String) -> TestPlan {
   for line in text.split("\n") {
     builder.record_line(line.to_owned())
   }
-  let plan = builder.build()
+  guard builder.build() is Some(plan) else {
+    fail("dry-run plan has unresolved module-local imports")
+  }
   guard plan.dir_to_fqn.length() > 0 else {
     fail("dry-run plan contains no packages")
   }

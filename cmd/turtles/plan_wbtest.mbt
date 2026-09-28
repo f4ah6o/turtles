@@ -18,7 +18,7 @@ fn build_sample_plan() -> TestPlan {
   for line in sample_plan().split("\n") {
     builder.record_line(line.to_owned())
   }
-  builder.build()
+  builder.build().unwrap()
 }
 
 ///|
@@ -62,6 +62,48 @@ test "test_packages_for selects observers transitively and canonical fqns" {
     plan.test_packages_for(mk_mutation("none/x.mbt", 0, 1, "+", "-")),
     None,
   )
+}
+
+///|
+test "imports resolve regardless of build-package line order" {
+  let builder = PlanBuilder::new()
+  // m/b imports m/a's artifact before m/a's own -o line appears.
+  builder.record_line(
+    "moonc build-package ./b/b.mbt -o ./_build/wasm/debug/test/b/b.core -pkg m/b -i ./_build/wasm/debug/test/a/a.mi:a -pkg-sources m/b:./b",
+  )
+  builder.record_line(
+    "moonc build-package ./a/a.mbt -o ./_build/wasm/debug/test/a/a.core -pkg m/a -pkg-sources m/a:./a",
+  )
+  match builder.build() {
+    Some(plan) =>
+      match plan.test_packages_for(mk_mutation("a/a.mbt", 0, 1, "+", "-")) {
+        Some(pkgs) => assert_eq(pkgs, ["m/a", "m/b"])
+        None => fail("expected a package selection")
+      }
+    None => fail("expected a resolved plan")
+  }
+}
+
+///|
+test "an unresolved module-local import invalidates the plan" {
+  let builder = PlanBuilder::new()
+  builder.record_line(
+    "moonc build-package ./a/a.mbt -o ./_build/wasm/debug/test/a/a.core -pkg m/a -pkg-sources m/a:./a",
+  )
+  // `ghost` has no recorded owner anywhere in the dry run.
+  builder.record_line(
+    "moonc build-package ./a/a_test.mbt -o ./_build/wasm/debug/test/a/a.blackbox_test.core -pkg m/a_blackbox_test -i ./_build/wasm/debug/test/ghost/g.mi:g -pkg-sources m/a_blackbox_test:./a -test-mode",
+  )
+  assert_true(builder.build() is None)
+}
+
+///|
+test "an unresolved external import does not invalidate the plan" {
+  let builder = PlanBuilder::new()
+  builder.record_line(
+    "moonc build-package ./a/a.mbt -o ./_build/wasm/debug/test/a/a.core -pkg m/a -i '$MOON_HOME/lib/m.mi:m' -pkg-sources m/a:./a",
+  )
+  assert_true(builder.build() is Some(_))
 }
 
 ///|
