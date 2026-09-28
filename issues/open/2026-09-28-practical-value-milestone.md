@@ -24,6 +24,7 @@ Host: 8-core Linux, `moon` nightly.
 | turtles (self) | 1 pkg, ~13 src files | 322 | ~26 min | ~4.9 s | 271K / 37S / 12T / 2U, score 84.7% |
 | moonbitlang/x | 14 pkgs, 87 src, 754 tests | 3,273 | ~3.0 h (projected) | ~3.2 s (uuid subset: 112 mutants in 5m57s) | uuid subset: 99K / 13S, score 88.4% |
 | moonbitlang/parser (moon.work) | workspace, generated lexer/parser | n/a | baseline `moon test` alone = **85 s** | cold copy per mutant is infeasible | not run |
+| moonbitlang/core (`strconv_uint.mbt`, `--affected --timeout-multiplier 2`) | ~60 pkgs, 7,819 tests | 50 | ~9.5 min | ~11 s | 18K / 32T — mutant in `internal/strconv` (hub pkg): `--affected` selects ~all packages; most timeouts are check-phase recompile bounds, not hangs |
 
 Per-mutant cost decomposition on moonbitlang/x (serial): workspace copy ~1.2 s, cold `moon check` ~0.4 s, cold `moon test` ~6.5 s. Under `--jobs 8` contention the CPU cost per mutant is ~15-25 s.
 
@@ -58,6 +59,8 @@ Persistent workspaces trade "fresh copy" for "restore in place":
 - *Stray files from test side effects*: after each mutant, entries not present in the workspace's setup manifest are deleted.
 - *`_build` cross-mutant state*: n2 is content-keyed (`dirty_on_output`); interrupted/partial outputs rebuild on the next run (verified). Timeout-killed `moon` leaves no lock behind.
 - *`--affected` missed-dependency edge → false SURVIVED*: opt-in flag; the package set is derived from moon's own `moon test --dry-run` plan (authoritative dep graph, includes `test-import`/`wbtest-import` edges); any resolution failure falls back to full-module `moon test`.
+- *Hub packages*: a mutant in a package everything links (e.g. core `internal/strconv`) makes `--affected` select ~every package — no speedup, and each mutant's `moon check` must recompile all dependents. The check-phase timeout therefore scales off `max(baseline_check, baseline_test)`, not the warm check baseline alone (a >10s check on core is legitimate work, not a hang).
+- *Timeout orphans*: killing a timed-out `moon` by pid leaves `moonc`/test-exe children running for hours (observed in dogfood). Mutants run moon under GNU `timeout --signal=KILL` (fresh process group, group-wide signal) when the binary probes present; the single-pid path remains as fallback.
 - *`--iterate` stale reuse*: reuse limited to KILLED/UNVIABLE mutants whose **file content hash + identity tuple (path, offsets, original, replacement, group)** match a schema-2 report. Identity never keys on line numbers. Survived/Timeout always re-run. Report marks reused entries (`"reused": true`) and `summary.reused` so assumption is visible. Residual: a change in a *different* source/test file can in principle flip a reused outcome — the fingerprint fields (`files`, `moon_version`) make the assumption auditable, and deleting `.turtles/report.json` forces a clean run.
 
 ## Candidate improvements
@@ -76,7 +79,7 @@ Persistent workspaces trade "fresh copy" for "restore in place":
 - **Warm workspaces**: `jobs` workspaces are copied once from `reference` and reused for every assigned mutant (mutate → classify → restore bytes → drop stray files). Fresh-copy path stays as `--fresh-workspaces` escape hatch? No — single code path; parity is enforced by the outcome-equivalence tests instead.
 - **Scan isolation**: a file the parser rejects is skipped with a warning and listed in the report (`skipped_files`), not fatal.
 - **`--iterate`**: reads `<dir>/.turtles/report.json` (schema 2); reuses KILLED/UNVIABLE for file-hash+identity-matched mutants (marked `reused`); reruns everything else.
-- **`--timeout-multiplier <f>`**: per-phase timeout = `max(10 s, f × baseline phase duration)` (check/test measured separately on the baseline). Overrides flat `--timeout` when set.
+- **`--timeout-multiplier <f>`**: per-phase timeout = `max(10 s, f × baseline phase duration)`; the check phase uses `max(baseline_check, baseline_test)` as its baseline since a mutant's recompile can dwarf the warm check. Overrides flat `--timeout` when set.
 - **`--output-dir <d>`** (default `<dir>/.turtles`, self-gitignored): `report.json` + `survivors/<id>.diff` (unified hunk, ±3 context lines). Mutant `id` = `m-` + 16-hex FNV-1a of the identity tuple — stable across runs when the source is unchanged.
 - **`--affected`**: per-mutant `moon test -p` restricted to the mutated package plus packages whose test targets transitively link it (from `moon test --dry-run`). Fallback to full-module test on any resolution failure. `moon check` stays module-wide for Unviable classification.
 - Report schema → 2: adds `turtles_version`, `moon_version`, `baseline_check_ms`, `baseline_test_ms`, `test_scope`, `files` (path→hash), `skipped_files`, per-mutant `id`/`offset`/`reused`, `summary.reused`. All schema-1 fields unchanged.

@@ -120,6 +120,11 @@ async fn validate_workspace(
 /// Per-phase mutant timeouts. With `--timeout-multiplier`, each phase is
 /// bounded by N times its measured baseline duration, floored at 10s so a
 /// sub-second baseline cannot starve a legitimately slower mutant build.
+/// The check bound is scaled off `max(check, test)`, not `check` alone:
+/// the baseline check runs on a warm copy, while a mutant's check must
+/// recompile the mutated package plus everything that links it — on a
+/// hub package that recompile can exceed the entire warm test baseline
+/// (observed: moonbitlang/core `internal/strconv` checks >10s).
 fn effective_timeouts(
   timeout_ms : Int,
   timeout_multiplier : Double?,
@@ -130,7 +135,12 @@ fn effective_timeouts(
     None => (timeout_ms, timeout_ms)
     Some(multiplier) => {
       let floor = 10000
-      let check_ms = (multiplier * baseline_check_ms.to_double()).to_int()
+      let check_base = if baseline_check_ms > baseline_test_ms {
+        baseline_check_ms
+      } else {
+        baseline_test_ms
+      }
+      let check_ms = (multiplier * check_base.to_double()).to_int()
       let test_ms = (multiplier * baseline_test_ms.to_double()).to_int()
       (
         if check_ms > floor {
