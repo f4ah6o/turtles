@@ -281,7 +281,9 @@ struct ManifestFile {
 /// workspace.
 struct WorkspaceManifest {
   files : Map[String, ManifestFile]
-  dirs : Map[String, Bool]
+  /// relative dir path -> observed permission (a mode-only chmod is a
+  /// dirty dir, restored after contents just like copy_tree does)
+  dirs : Map[String, Int]
   links : Map[String, Bool]
 }
 
@@ -300,7 +302,7 @@ async fn snapshot_manifest(
       if should_skip_dir(name) {
         continue
       }
-      manifest.dirs[relative] = true
+      manifest.dirs[relative] = observed_permission(full)
       snapshot_manifest(root, full, manifest)
     } else if kind is Regular {
       manifest.files[relative] = {
@@ -316,6 +318,7 @@ async fn snapshot_manifest(
 ///|
 async fn snapshot_workspace(root : String) -> WorkspaceManifest {
   let manifest = { files: Map([]), dirs: Map([]), links: Map([]), }
+  manifest.dirs["."] = observed_permission(root)
   snapshot_manifest(root, root, manifest)
   manifest
 }
@@ -331,6 +334,11 @@ async fn sweep_workspace(
   reference : String,
   manifest : WorkspaceManifest,
 ) -> Unit {
+  // A test may have made the workspace root itself non-traversable;
+  // without this chmod the sweep below cannot even list it.
+  @fs.chmod(root, 0o700) catch {
+    _ => ()
+  }
   sweep_dir(root, root, reference, manifest)
   // Restore anything missing or changed. Strays are already gone.
   for entry in manifest.files {
@@ -344,14 +352,25 @@ async fn sweep_workspace(
       true
     }
     if dirty {
-      if @fs.exists(current) {
-        @fs.chmod(current, 0o600) catch {
+      let kind = @fs.kind(current, follow_symlink=false) catch { _ => Unknown }
+      if kind is Directory {
+        force_rmdir(current) catch {
           _ => ()
+        }
+      } else {
+        // chmod only real files: on a symlink it would follow through
+        // and touch the link target, which may live outside the module.
+        if kind is Regular {
+          @fs.chmod(current, 0o600) catch {
+            _ => ()
+          }
         }
         @fs.remove(current) catch {
           _ => ()
         }
       }
+      let parent = @path.Path(current).dirname().to_string()
+      @fs.mkdir(parent, recursive=true, allow_exist=true)
       copy_regular_file(path_join(reference, relative), current)
     }
   }
@@ -360,7 +379,7 @@ async fn sweep_workspace(
   for entry in manifest.links {
     let relative = entry.0
     let current = path_join(root, relative)
-    let kind = @fs.kind(current, follow_symlink=false)
+    let kind = @fs.kind(current, follow_symlink=false) catch { _ => Unknown }
     if kind is Directory {
       force_rmdir(current) catch {
         _ => ()
@@ -373,6 +392,26 @@ async fn sweep_workspace(
     let parent = @path.Path(current).dirname().to_string()
     @fs.mkdir(parent, recursive=true, allow_exist=true)
     copy_symlink(reference, path_join(reference, relative), root)
+  }
+  // Restore recorded directory permissions deepest-first — mirroring
+  // copy_tree's post-order restore, and required because a parent made
+  // non-traversable would hide its children from later chmods. Missing
+  // manifest dirs (deleted wholesale) are recreated first.
+  let dir_list : Array[String] = []
+  for entry in manifest.dirs {
+    dir_list.push(entry.0)
+  }
+  dir_list.sort()
+  for i = dir_list.length() - 1; i >= 0; i = i - 1 {
+    let relative = dir_list[i]
+    let current = path_join(root, relative)
+    if !@fs.exists(current) {
+      @fs.mkdir(current, recursive=true)
+    }
+    match manifest.dirs.get(relative) {
+      Some(perm) => @fs.chmod(current, perm)
+      None => ()
+    }
   }
 }
 
@@ -395,6 +434,12 @@ async fn sweep_dir(
         continue
       }
       if manifest.dirs.contains(relative) {
+        // A test may have made this dir non-traversable; loosen it so the
+        // sweep can list and clean inside. The recorded mode is restored
+        // afterwards by sweep_workspace's permission pass.
+        @fs.chmod(full, 0o700) catch {
+          _ => ()
+        }
         sweep_dir(root, full, reference, manifest)
       } else {
         force_rmdir(full)

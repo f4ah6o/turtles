@@ -251,6 +251,7 @@ async test "sweep restores modes, link targets, and only root caches" {
     )
     write_file(path_join(source, "real.txt"), "linked")
     @fs.symlink(path_join(source, "link.txt"), target="real.txt")
+    @fs.symlink(path_join(source, "gone.txt"), target="real.txt")
     let pkg = path_join(source, "pkg")
     @fs.mkdir(pkg, recursive=true)
     write_file(path_join(pkg, "kept.mbt"), "real package file")
@@ -263,6 +264,8 @@ async test "sweep restores modes, link targets, and only root caches" {
     @fs.chmod(helper, 0o644)
     @fs.remove(path_join(workspace, "link.txt"))
     @fs.symlink(path_join(workspace, "link.txt"), target="a.mbt")
+    // an outright delete (no replacement) must recreate, not crash
+    @fs.remove(path_join(workspace, "gone.txt"))
     // and hides strays inside same-named dirs below the root
     let nested = path_join(workspace, "pkg")
     let deep_build = path_join(nested, "_build")
@@ -274,10 +277,14 @@ async test "sweep restores modes, link targets, and only root caches" {
     let root_build = path_join(workspace, "_build")
     @fs.mkdir(root_build, recursive=true)
     write_file(path_join(root_build, "warm"), "cache")
+    // a mode-only change on an existing dir: entry stays, mode must not
+    @fs.chmod(nested, 0o555)
     sweep_workspace(workspace, source, manifest)
     // mutant N+1 sees the original state
     assert_true(@fs.can_execute(helper))
     assert_eq(@fs.read_file(path_join(workspace, "link.txt")).text(), "linked")
+    assert_eq(@fs.read_file(path_join(workspace, "gone.txt")).text(), "linked")
+    assert_true(@fs.can_write(path_join(workspace, "pkg")))
     assert_true(!@fs.exists(deep_build))
     assert_true(!@fs.exists(deep_cakes))
     assert_true(@fs.exists(path_join(workspace, "pkg/kept.mbt")))
