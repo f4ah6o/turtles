@@ -3,12 +3,33 @@ async fn run_moon_command(
   root : String,
   args : Array[String],
   timeout_ms : Int,
+  group_kill : Bool,
 ) -> CommandResult {
   // Nested moon output must not reach our own stdout: when turtles runs
   // inside `moon test`, subprocess output interleaves with the test driver
   // protocol and corrupts result parsing. The log lives next to the
   // workspace so the copied tree stays pristine.
   let output = @process.redirect_to_file(root + "-moon-output.log")
+  if group_kill {
+    // GNU `timeout` runs moon in a fresh process group and signals the
+    // GROUP on expiry — hard-killing only the moon pid orphans its
+    // moonc/test-exe children, which then burn CPU until reaped (observed
+    // in dogfood: orphaned test exes ran for hours). `with_timeout_opt`
+    // remains as a belt around `timeout` itself.
+    let secs = timeout_ms.to_double() / 1000.0
+    let wrapped = ["--signal=KILL", secs.to_string(), "moon"]
+    for arg in args {
+      wrapped.push(arg)
+    }
+    let exit_code = @async.with_timeout_opt(timeout_ms + 5000, () => {
+      @process.run("timeout", wrapped, cwd=root, stdout=output, stderr=output)
+    })
+    return match exit_code {
+      None | Some(124) => CommandTimeout
+      Some(0) => CommandSuccess
+      Some(_) => CommandFailure
+    }
+  }
   let exit_code = @async.with_timeout_opt(timeout_ms, () => {
     @process.run(
       "moon",
@@ -27,25 +48,52 @@ async fn run_moon_command(
 }
 
 ///|
-async fn classify_mutant(root : String, timeout_ms : Int) -> Outcome {
-  match run_moon_command(root, ["check"], timeout_ms) {
-    CommandFailure => return Unviable
-    CommandTimeout => return Timeout
+async fn classify_mutant(
+  root : String,
+  mutation : Mutation,
+  check_timeout_ms : Int,
+  test_timeout_ms : Int,
+  plan : TestPlan?,
+  group_kill : Bool,
+) -> (Outcome, Array[String]?) {
+  match run_moon_command(root, ["check"], check_timeout_ms, group_kill) {
+    CommandFailure => return (Unviable, None)
+    CommandTimeout => return (Timeout, None)
     CommandSuccess => ()
   }
-  match run_moon_command(root, ["test"], timeout_ms) {
-    CommandSuccess => Survived
-    CommandFailure => Killed
-    CommandTimeout => Timeout
+  let args : Array[String] = ["test"]
+  let packages = match plan {
+    Some(plan) => plan.test_packages_for(mutation)
+    None => None
+  }
+  match packages {
+    Some(selected) =>
+      for pkg_name in selected {
+        args.push("-p")
+        args.push(pkg_name)
+      }
+    None => ()
+  }
+  match run_moon_command(root, args, test_timeout_ms, group_kill) {
+    CommandSuccess => (Survived, packages)
+    CommandFailure => (Killed, packages)
+    CommandTimeout => (Timeout, packages)
   }
 }
 
 ///|
 /// Run an unchanged copy before classifying mutants: divergence between the
 /// original module and its temporary workspace is a setup error, not mutant
-/// evidence.
-async fn validate_workspace(workspace : String, timeout_ms : Int) -> Unit {
-  match run_moon_command(workspace, ["check"], timeout_ms) {
+/// evidence. The baseline gets a generous budget (10x the per-mutant
+/// timeout): a slow-but-valid first build must not abort the run, while a
+/// mutant that hangs is still bounded by `timeout_ms`.
+async fn validate_workspace(
+  workspace : String,
+  timeout_ms : Int,
+  group_kill : Bool,
+) -> (Int64, Int64) {
+  let check_started = @async.now()
+  match run_moon_command(workspace, ["check"], timeout_ms, group_kill) {
     CommandSuccess => ()
     CommandFailure =>
       fail(
@@ -54,7 +102,9 @@ async fn validate_workspace(workspace : String, timeout_ms : Int) -> Unit {
     CommandTimeout =>
       fail("temporary workspace validation timed out during `moon check`")
   }
-  match run_moon_command(workspace, ["test"], timeout_ms) {
+  let check_ms = @async.now() - check_started
+  let test_started = @async.now()
+  match run_moon_command(workspace, ["test"], timeout_ms, group_kill) {
     CommandSuccess => ()
     CommandFailure =>
       fail(
@@ -63,48 +113,118 @@ async fn validate_workspace(workspace : String, timeout_ms : Int) -> Unit {
     CommandTimeout =>
       fail("temporary workspace validation timed out during `moon test`")
   }
+  (check_ms, @async.now() - test_started)
 }
 
 ///|
-/// Run one mutation in its own workspace copied fresh from `reference`.
-/// `index` is 1-based so workspace names stay `mutant-N` in discovery order.
-async fn run_one_mutant(
-  reference : String,
-  temp : String,
-  index : Int,
-  mutation : Mutation,
+/// Per-phase mutant timeouts. With `--timeout-multiplier`, each phase is
+/// bounded by N times its measured baseline duration, floored at 10s so a
+/// sub-second baseline cannot starve a legitimately slower mutant build.
+/// The check bound is scaled off `max(check, test)`, not `check` alone:
+/// the baseline check runs on a warm copy, while a mutant's check must
+/// recompile the mutated package plus everything that links it — on a
+/// hub package that recompile can exceed the entire warm test baseline
+/// (observed: moonbitlang/core `internal/strconv` checks >10s).
+fn effective_timeouts(
   timeout_ms : Int,
-  classify : async (String, Int) -> Outcome,
+  timeout_multiplier : Double?,
+  baseline_check_ms : Int64,
+  baseline_test_ms : Int64,
+) -> (Int, Int) {
+  match timeout_multiplier {
+    None => (timeout_ms, timeout_ms)
+    Some(multiplier) => {
+      let floor = 10000
+      let check_base = if baseline_check_ms > baseline_test_ms {
+        baseline_check_ms
+      } else {
+        baseline_test_ms
+      }
+      let check_ms = (multiplier * check_base.to_double()).to_int()
+      let test_ms = (multiplier * baseline_test_ms.to_double()).to_int()
+      (
+        if check_ms > floor {
+          check_ms
+        } else {
+          floor
+        },
+        if test_ms > floor {
+          test_ms
+        } else {
+          floor
+        },
+      )
+    }
+  }
+}
+
+///|
+/// Run one mutation inside the worker's persistent workspace. The mutated
+/// file is written in place (no copy), classified, and the workspace is
+/// swept back to its snapshot — manifest files restored byte-for-byte and
+/// stray files from test side effects removed. `_build` stays warm: n2
+/// tracks content, so a restored source rebuilds cleanly and a
+/// timeout-killed build leaves no stale outputs.
+async fn run_one_mutant(
+  workspace : String,
+  reference : String,
+  manifest : Ref[WorkspaceManifest],
+  mutation : Mutation,
+  classify : async (String, Mutation) -> (Outcome, Array[String]?),
 ) -> MutationResult {
-  let workspace = path_join(temp, "mutant-\{index}")
-  @fs.mkdir(workspace, recursive=true)
-  copy_tree(reference, reference, workspace)
   let target = path_join(workspace, mutation.path)
-  let original_source = @fs.read_file(target).text()
-  let mutated_source = apply_mutation(original_source, mutation)
+  let original_source = @fs.read_file(target).text() catch {
+    _ => {
+      manifest.val = rebuild_workspace(workspace, reference)
+      @fs.read_file(path_join(workspace, mutation.path)).text()
+    }
+  }
+  let mutated_source = apply_mutation(original_source, mutation) catch {
+    error => {
+      // A failed apply means the workspace drifted from its snapshot;
+      // rebuild once, then give up loudly if it still does not hold.
+      manifest.val = rebuild_workspace(workspace, reference)
+      let restored = @fs.read_file(path_join(workspace, mutation.path)).text()
+      apply_mutation(restored, mutation) catch {
+        _ =>
+          fail(
+            "mutation cannot be applied even after workspace rebuild: \{error}",
+          )
+      }
+    }
+  }
   @fs.write_file(target, mutated_source)
   let started = @async.now()
-  let outcome = classify(workspace, timeout_ms)
+  // If classify raises, sweep best-effort before propagating so a failed
+  // run cannot leave a mutated file for the next mutant.
+  errdefer ignore(
+    sweep_workspace(workspace, reference, manifest.val) catch {
+      _ => ()
+    },
+  )
+  let (outcome, packages) = classify(workspace, mutation)
   let duration_ms = @async.now() - started
-  force_rmdir(workspace) catch {
-    _ => ()
+  sweep_workspace(workspace, reference, manifest.val) catch {
+    _ => manifest.val = rebuild_workspace(workspace, reference)
   }
-  { mutation, outcome, duration_ms, }
+  { mutation, outcome, duration_ms, reused: false, packages, }
 }
 
 ///|
-/// Fan mutants out to at most `jobs` workers. Each worker pulls the next
-/// unclaimed mutation index, runs it in an isolated `mutant-N` workspace, and
-/// writes the result into its own slot, so report order always matches
-/// discovery order no matter how runs interleave. A worker failure fails the
-/// task group, which cancels the remaining workers.
+/// Fan mutants out to at most `jobs` workers. Each worker owns one
+/// `worker-N` workspace for the whole run, pulling the next unclaimed
+/// mutation index and writing the result into its own slot, so report order
+/// always matches discovery order no matter how runs interleave. `reuse`
+/// carries results recycled from a prior --iterate run; those indices are
+/// recorded without running. A worker failure fails the task group, which
+/// cancels the remaining workers.
 async fn run_mutation_pool(
   temp : String,
   reference : String,
   mutations : Array[Mutation],
   jobs : Int,
-  timeout_ms : Int,
-  classify : async (String, Int) -> Outcome,
+  reuse : Array[MutationResult?],
+  classify : async (String, Mutation) -> (Outcome, Array[String]?),
 ) -> Array[MutationResult] {
   let total = mutations.length()
   let slots : Array[MutationResult?] = Array::make(total, None)
@@ -112,20 +232,34 @@ async fn run_mutation_pool(
   let completed = Ref(0)
   let worker_count = if jobs < total { jobs } else { total }
   @async.with_task_group(group => {
-    for _ in 0..<worker_count {
+    for w in 0..<worker_count {
+      let workspace = path_join(temp, "worker-\{w}")
       group.spawn_bg(() => {
+        @fs.mkdir(workspace, recursive=true)
+        copy_tree(reference, reference, workspace)
+        let manifest = Ref(snapshot_workspace(workspace))
         while true {
           let index = next_index.val
           if index >= total {
             break
           }
           next_index.val = index + 1
+          match reuse[index] {
+            Some(result) => {
+              slots[index] = Some(result)
+              completed.val = completed.val + 1
+              println(
+                "[\{completed.val}/\{total}] REUSED \{describe_mutation(mutations[index])}",
+              )
+              continue
+            }
+            None => ()
+          }
           let result = run_one_mutant(
+            workspace,
             reference,
-            temp,
-            index + 1,
+            manifest,
             mutations[index],
-            timeout_ms,
             classify,
           )
           slots[index] = Some(result)
@@ -133,6 +267,12 @@ async fn run_mutation_pool(
           println(
             "[\{completed.val}/\{total}] \{outcome_name(result.outcome)} \{describe_mutation(mutations[index])}",
           )
+        }
+        // The workspace is worker-local scratch: the outer tmpdir teardown
+        // removes it, but free the disk eagerly so large modules do not
+        // accumulate N copies for the whole run.
+        force_rmdir(workspace) catch {
+          _ => ()
         }
       })
     }
@@ -143,14 +283,19 @@ async fn run_mutation_pool(
 ///|
 /// The `reference` tree is snapshotted before any test runs and the baseline
 /// executes on a disposable copy of it, so baseline side effects cannot leak
-/// into mutants and the module's working tree is never touched. Every mutant
-/// then runs in a fresh workspace copied from the same pristine reference.
+/// into mutants and the module's working tree is never touched. Mutants run
+/// in persistent per-worker workspaces that keep `_build` warm at a stable
+/// path; isolation comes from restoring the snapshot after each mutant
+/// rather than recopying the tree.
 async fn run_mutations(
   root : String,
   mutations : Array[Mutation],
   timeout_ms : Int,
+  timeout_multiplier : Double?,
   jobs : Int,
-) -> (Int64, Array[MutationResult]) {
+  affected : Bool,
+  reuse : Array[MutationResult?],
+) -> (Int64, Int64, Int64, Array[MutationResult], String) {
   let root = @fs.realpath(root)
   let temp = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
@@ -165,12 +310,55 @@ async fn run_mutations(
     copy_tree(reference, reference, baseline)
     println("Baseline: moon check + moon test on pristine copy ...")
     let started = @async.now()
-    validate_workspace(baseline, timeout_ms)
+    // Probe for GNU `timeout`: present everywhere on Linux coreutils; on
+    // systems without it we keep the single-pid hard-kill path (children
+    // of a killed moon may then be orphaned until they exit).
+    let probe_out = @process.redirect_to_file(temp + "/timeout-probe.log")
+    let group_kill = @async.with_timeout_opt(5000, () => {
+        @process.run("timeout", ["--version"], stdout=probe_out)
+      }) ==
+      Some(0)
+    let (baseline_check_ms, baseline_test_ms) = validate_workspace(
+      baseline,
+      timeout_ms * 10,
+      group_kill,
+    )
     let baseline_duration_ms = @async.now() - started
     println("Baseline: ok")
-    let results = run_mutation_pool(
-      temp, reference, mutations, jobs, timeout_ms, classify_mutant,
+    let (check_timeout_ms, test_timeout_ms) = effective_timeouts(
+      timeout_ms, timeout_multiplier, baseline_check_ms, baseline_test_ms,
     )
-    (baseline_duration_ms, results)
+    match timeout_multiplier {
+      Some(_) =>
+        println(
+          "Timeouts: check \{check_timeout_ms / 1000}s, test \{test_timeout_ms / 1000}s (from baseline)",
+        )
+      None => ()
+    }
+    let plan : TestPlan? = if affected {
+      Some(load_test_plan(reference)) catch {
+        error => {
+          println(
+            "warning: --affected disabled; cannot read test plan: \{error}",
+          )
+          None
+        }
+      }
+    } else {
+      None
+    }
+    let classify = (workspace : String, mutation : Mutation) => {
+      classify_mutant(
+        workspace, mutation, check_timeout_ms, test_timeout_ms, plan, group_kill,
+      )
+    }
+    let results = run_mutation_pool(
+      temp, reference, mutations, jobs, reuse, classify,
+    )
+    let scope = match plan {
+      Some(_) => "affected"
+      None => "module"
+    }
+    (baseline_duration_ms, baseline_check_ms, baseline_test_ms, results, scope)
   }
 }

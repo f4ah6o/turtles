@@ -43,7 +43,10 @@ turtles --dir .                    # run all discovered mutants
 turtles --dir . --list             # preview mutations without running tests
 turtles --dir . --file src/parser  # only mutate paths containing TEXT
 turtles --dir . --timeout 120      # per-command timeout in seconds (default 60)
-turtles --dir . --json report.json # machine-readable report (schema 1)
+turtles --dir . --json report.json # machine-readable report (schema 2)
+turtles --dir . --iterate          # reuse KILLED/UNVIABLE outcomes from the last run
+turtles --dir . --affected         # run only tests that can observe each mutant
+turtles --dir . --timeout-multiplier 3   # per-phase timeout = 3x the measured baseline (min 10s)
 ```
 
 ### Parallel execution
@@ -52,7 +55,7 @@ turtles --dir . --json report.json # machine-readable report (schema 1)
 turtles --dir . --jobs 4
 ```
 
-`--jobs N` runs up to `N` mutants concurrently (validated as a positive integer; default `1`). Each mutant still gets its own fresh workspace copied from the pristine reference tree, and the baseline `moon check` + `moon test` runs exactly once before any mutant. Results and the JSON report are always ordered by discovery order, not completion order — parallelism never makes reports flaky.
+`--jobs N` runs up to `N` mutants concurrently (validated as a positive integer; default `1`). Each worker gets a persistent `worker-N` workspace with a warm `_build`, restored to its snapshot after every mutant, and the baseline `moon check` + `moon test` runs exactly once before any mutant. Results and the JSON report are always ordered by discovery order, not completion order — parallelism never makes reports flaky.
 
 Note that `moon` itself already parallelizes a single build; `--jobs` parallelizes *across mutants*, so values above ~2× your CPU count only add contention.
 
@@ -100,23 +103,30 @@ Outcome classification:
 
 After the summary counts, every `SURVIVED`/`TIMEOUT` mutant is reprinted under `Mutants needing attention:` so the actionable list is at the end of the output.
 
-The JSON report (schema `1`) adds `group`, `duration_ms`, and the baseline duration:
+Every run writes a schema-`2` report and per-survivor unified diffs to `<dir>/.turtles/` (which git-ignores itself): `report.json` plus `survivors/<id>.diff` for each surviving or timed-out mutant. The report adds stable mutant `id`s (FNV-1a over path + byte offsets + original + replacement + group), per-phase baseline durations (`baseline_check_ms`/`baseline_test_ms`), `test_scope`, a `files` fingerprint map, `skipped_files`, and `reused` counts:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "module": "/abs/path",
+  "turtles_version": "0.2.0",
+  "moon_version": "moon 0.1.20260920 (914d7da 2026-09-20) ~/.moon/bin/moon",
   "baseline_duration_ms": "216",
+  "baseline_check_ms": "70",
+  "baseline_test_ms": "146",
+  "test_scope": "module",
   "mutants": [
-    { "path": "math.mbt", "line": 3, "column": 5, "group": "arithmetic",
+    { "id": "m-e7ccdf47c3b8bc0b", "path": "math.mbt", "line": 3, "column": 5,
+      "offset": 47, "end": 48, "group": "arithmetic",
       "original": "+", "replacement": "-", "outcome": "KILLED",
-      "duration_ms": "202" }
+      "duration_ms": "202", "reused": false }
   ],
-  "summary": { "killed": 6, "survived": 0, "timeout": 0, "unviable": 0, "score": 100 }
+  "summary": { "killed": 6, "survived": 0, "timeout": 0, "unviable": 0,
+               "reused": 0, "score": 100 }
 }
 ```
 
-An empty mutation set still produces a schema-1 report with `mutants: []` and a real measured `baseline_duration_ms`; `--list` never runs tests.
+`--output-dir <path>` relocates the report directory; `--json` additionally writes a plain report anywhere for CI. `--iterate` loads the previous `<output-dir>/report.json` and reuses `KILLED`/`UNVIABLE` outcomes for mutants whose file content hash and identity tuple are unchanged (marked `"reused": true`); `SURVIVED`/`TIMEOUT` mutants always re-run. Reuse is refused wholesale when the schema, turtles version, or moon version differ. `--affected` is opt-in test selection: it parses `moon test --dry-run` to learn the package graph and runs `moon test -p` on just the mutated package plus packages whose test targets transitively link it, falling back to a module-wide run whenever resolution is uncertain. An empty mutation set still produces a schema-2 report with `mutants: []`; `--list` never runs tests.
 
 ## Configuration
 
@@ -141,7 +151,7 @@ The configuration parser intentionally supports a small TOML-compatible subset: 
 
 `turtles` never runs tests in the module's working tree. The module is copied into a temporary directory, excluding `.git`, `target`, `_build`, `.mooncakes`, `.moon`, and `node_modules`. The copy keeps the caller's read/write/execute permissions on files and directories and recreates symlinks that resolve inside the module as links; symlinks that point outside the module are dereference-copied so writes cannot escape the workspace, and dangling links are a hard error.
 
-The first copy is a pristine `reference` tree, snapshotted before any test executes. The baseline runs `moon check` and `moon test` on a disposable `baseline` copy of that reference — a failure there is a setup error (exit `2`), not a mutant outcome — so state written by the baseline cannot leak into mutants either. Each mutant then runs in its own `mutant-N` workspace copied fresh from `reference`, so filesystem state written by earlier runs (sentinels, caches, generated files) cannot leak into later classifications and mutant order cannot change results. This holds under `--jobs N` as well: workers share the read-only `reference` and never share a workspace. The temporary directory is removed when the run finishes.
+The first copy is a pristine `reference` tree, snapshotted before any test executes. The baseline runs `moon check` and `moon test` on a disposable `baseline` copy of that reference — a failure there is a setup error (exit `2`), not a mutant outcome — so state written by the baseline cannot leak into mutants either. Each mutant then runs in one of `jobs` persistent `worker-N` workspaces copied once from `reference`: the mutation is written in place, classified, and the workspace is swept back to its manifest snapshot — recorded bytes are restored and any file the snapshot did not contain is deleted — so state written by earlier runs (sentinels, caches, generated files) cannot leak into later classifications, and mutant order cannot change results. `_build` stays warm inside each workspace, which is where most of the speedup comes from. This holds under `--jobs N` as well: workers share the read-only `reference` and never share a workspace. The temporary directory is removed when the run finishes.
 
 Nested MoonBit modules — child directories carrying their own `moon.mod`/`moon.mod.json` — are excluded from discovery: the root module's `moon test` cannot reach their code, so their mutants would falsely survive.
 
@@ -173,8 +183,8 @@ moon -C fixtures/basic test
 moon run cmd/turtles -- --dir fixtures/basic --timeout 30
 ```
 
-The real fixture E2E also validates schema-1 JSON report generation, deterministic ordering under `--jobs`, and `--fail-under` exit codes.
+The real fixture E2E also validates schema-2 JSON report generation, deterministic ordering under `--jobs`, and `--fail-under` exit codes.
 
 ## Planned follow-ups
 
-Test selection, survived-mutant source/diff artifacts, JUnit reports, resume/retry, and incremental/cached execution are still open. mooncakes.io publishing and prebuilt release binaries are deliberately out of scope until the registry flow is exercised; `moon install` from the git URL is the verified install path today.
+JUnit reports, richer survivor context, and smarter default test selection are still open. mooncakes.io publishing and prebuilt release binaries are deliberately out of scope until the registry flow is exercised; `moon install` from the git URL is the verified install path today.

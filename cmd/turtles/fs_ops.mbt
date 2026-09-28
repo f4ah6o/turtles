@@ -15,7 +15,21 @@ fn should_skip_dir(name : String) -> Bool {
   name == "_build" ||
   name == ".mooncakes" ||
   name == ".moon" ||
+  name == ".turtles" ||
   name == "node_modules"
+}
+
+///|
+/// Directories moon owns and regenerates on demand — kept warm across
+/// mutants rather than swept. `.mooncakes` is moon's vendored dep cache:
+/// never copied in, but `moon check` re-vendors it inside every workspace
+/// (~1.3 s), so sweeping it would pay a re-vendor for every mutant.
+/// `.git`/`.moon`/`target`/`node_modules`/`.turtles` are NOT moon-managed
+/// — a test creating them must not leak state into the next mutant.
+/// Matched on the root-relative path: moon's caches live at the workspace
+/// root, and a same-named directory any deeper is test-created state.
+fn moon_owned_path(relative : String) -> Bool {
+  relative == "_build" || relative == ".mooncakes"
 }
 
 ///|
@@ -40,6 +54,45 @@ async fn ensure_moonbit_module(root : String) -> Unit {
 async fn is_nested_module(dir : String) -> Bool {
   @fs.exists(path_join(dir, "moon.mod")) ||
   @fs.exists(path_join(dir, "moon.mod.json"))
+}
+
+///|
+
+///|
+/// Files that make classification reproducible: every `.mbt` source
+/// (test or not), package/module manifests, and `turtles.toml`. Nested
+/// modules stay out — the root module's `moon test` never builds them.
+fn is_fingerprint_file(name : String) -> Bool {
+  name.has_suffix(".mbt") ||
+  name == "moon.pkg" ||
+  name == "moon.pkg.json" ||
+  name == "moon.mod" ||
+  name == "moon.mod.json" ||
+  name == "moon.work" ||
+  name == "moon.work.json" ||
+  name == "turtles.toml"
+}
+
+///|
+async fn collect_fingerprint_files(
+  root : String,
+  dir : String,
+  output : Array[String],
+) -> Unit {
+  let names = @fs.readdir(dir, include_hidden=true, sort=true)
+  for name in names {
+    let full = path_join(dir, name)
+    let kind = @fs.kind(full)
+    if kind is Directory {
+      if !should_skip_dir(name) && !is_nested_module(full) {
+        collect_fingerprint_files(root, full, output)
+      }
+      continue
+    }
+    if kind is Regular && is_fingerprint_file(name) {
+      output.push(relative_path(root, full))
+    }
+  }
 }
 
 ///|
@@ -80,13 +133,19 @@ async fn discover_mutations(
   root : String,
   file_filter : String?,
   project_config : ProjectConfig,
+  skipped : Array[SkippedFile],
 ) -> Array[Mutation] {
   let files : Array[String] = []
   collect_moonbit_files(root, root, file_filter, project_config, files)
   let mutations : Array[Mutation] = []
   for relative in files {
     let source = @fs.read_file(path_join(root, relative)).text()
-    let found = scan_source(relative, source, project_config)
+    let found = scan_source(relative, source, project_config) catch {
+      error => {
+        skipped.push({ path: relative, error: error.to_string(), })
+        continue
+      }
+    }
     for mutation in found {
       mutations.push(mutation)
     }
@@ -205,6 +264,211 @@ async fn make_writable_tree(dir : String) -> Unit {
 async fn force_rmdir(path : String) -> Unit {
   make_writable_tree(path)
   @fs.rmdir(path, recursive=true)
+}
+
+///|
+/// A manifest's view of one regular file: content fingerprint plus the
+/// observed permission — a mode-only change is still a dirty file.
+struct ManifestFile {
+  hash : String
+  perm : Int
+}
+
+///|
+/// Snapshot of a freshly copied workspace: every regular file's fingerprint
+/// and permission, plus the directory and symlink sets. The post-mutant
+/// sweep uses it to prove inter-mutant isolation inside a persistent
+/// workspace.
+struct WorkspaceManifest {
+  files : Map[String, ManifestFile]
+  /// relative dir path -> observed permission (a mode-only chmod is a
+  /// dirty dir, restored after contents just like copy_tree does)
+  dirs : Map[String, Int]
+  links : Map[String, Bool]
+}
+
+///|
+async fn snapshot_manifest(
+  root : String,
+  dir : String,
+  manifest : WorkspaceManifest,
+) -> Unit {
+  let names = @fs.readdir(dir, include_hidden=true, sort=true)
+  for name in names {
+    let full = path_join(dir, name)
+    let kind = @fs.kind(full, follow_symlink=false)
+    let relative = relative_path(root, full)
+    if kind is Directory {
+      if should_skip_dir(name) {
+        continue
+      }
+      manifest.dirs[relative] = observed_permission(full)
+      snapshot_manifest(root, full, manifest)
+    } else if kind is Regular {
+      manifest.files[relative] = {
+        hash: fingerprint_hex(fnv1a(@fs.read_file(full).binary())),
+        perm: observed_permission(full),
+      }
+    } else if kind is SymLink {
+      manifest.links[relative] = true
+    }
+  }
+}
+
+///|
+async fn snapshot_workspace(root : String) -> WorkspaceManifest {
+  let manifest = { files: Map([]), dirs: Map([]), links: Map([]), }
+  manifest.dirs["."] = observed_permission(root)
+  snapshot_manifest(root, root, manifest)
+  manifest
+}
+
+///|
+/// Return a reused workspace to its snapshot state: delete anything the
+/// snapshot did not contain (test-run side effects, generated files) and
+/// restore any snapshot file whose bytes changed or vanished. The mutated
+/// source file is restored by this same pass, so no separate restore step
+/// can drift out of sync with the manifest.
+async fn sweep_workspace(
+  root : String,
+  reference : String,
+  manifest : WorkspaceManifest,
+) -> Unit {
+  // A test may have made the workspace root itself non-traversable;
+  // without this chmod the sweep below cannot even list it.
+  @fs.chmod(root, 0o700) catch {
+    _ => ()
+  }
+  sweep_dir(root, root, reference, manifest)
+  // Restore anything missing or changed. Strays are already gone.
+  for entry in manifest.files {
+    let relative = entry.0
+    let current = path_join(root, relative)
+    let dirty = if @fs.exists(current) {
+      !(@fs.kind(current, follow_symlink=false) is Regular) ||
+      observed_permission(current) != entry.1.perm ||
+      fingerprint_hex(fnv1a(@fs.read_file(current).binary())) != entry.1.hash
+    } else {
+      true
+    }
+    if dirty {
+      let kind = @fs.kind(current, follow_symlink=false) catch { _ => Unknown }
+      if kind is Directory {
+        force_rmdir(current) catch {
+          _ => ()
+        }
+      } else {
+        // chmod only real files: on a symlink it would follow through
+        // and touch the link target, which may live outside the module.
+        if kind is Regular {
+          @fs.chmod(current, 0o600) catch {
+            _ => ()
+          }
+        }
+        @fs.remove(current) catch {
+          _ => ()
+        }
+      }
+      let parent = @path.Path(current).dirname().to_string()
+      @fs.mkdir(parent, recursive=true, allow_exist=true)
+      copy_regular_file(path_join(reference, relative), current)
+    }
+  }
+  // Recreate every manifest link from the reference: existence proves
+  // nothing about the target, and a retargeted link leaks state too.
+  for entry in manifest.links {
+    let relative = entry.0
+    let current = path_join(root, relative)
+    let kind = @fs.kind(current, follow_symlink=false) catch { _ => Unknown }
+    if kind is Directory {
+      force_rmdir(current) catch {
+        _ => ()
+      }
+    } else if @fs.exists(current) || kind is SymLink {
+      @fs.remove(current) catch {
+        _ => ()
+      }
+    }
+    let parent = @path.Path(current).dirname().to_string()
+    @fs.mkdir(parent, recursive=true, allow_exist=true)
+    copy_symlink(reference, path_join(reference, relative), root)
+  }
+  // Restore recorded directory permissions deepest-first — mirroring
+  // copy_tree's post-order restore, and required because a parent made
+  // non-traversable would hide its children from later chmods. Missing
+  // manifest dirs (deleted wholesale) are recreated first.
+  let dir_list : Array[String] = []
+  for entry in manifest.dirs {
+    dir_list.push(entry.0)
+  }
+  dir_list.sort()
+  for i = dir_list.length() - 1; i >= 0; i = i - 1 {
+    let relative = dir_list[i]
+    let current = path_join(root, relative)
+    if !@fs.exists(current) {
+      @fs.mkdir(current, recursive=true)
+    }
+    match manifest.dirs.get(relative) {
+      Some(perm) => @fs.chmod(current, perm)
+      None => ()
+    }
+  }
+}
+
+///|
+async fn sweep_dir(
+  root : String,
+  dir : String,
+  reference : String,
+  manifest : WorkspaceManifest,
+) -> Unit {
+  let names = @fs.readdir(dir, include_hidden=true, sort=true) catch {
+    _ => return
+  }
+  for name in names {
+    let full = path_join(dir, name)
+    let kind = @fs.kind(full, follow_symlink=false)
+    let relative = relative_path(root, full)
+    if kind is Directory {
+      if moon_owned_path(relative) {
+        continue
+      }
+      if manifest.dirs.contains(relative) {
+        // A test may have made this dir non-traversable; loosen it so the
+        // sweep can list and clean inside. The recorded mode is restored
+        // afterwards by sweep_workspace's permission pass.
+        @fs.chmod(full, 0o700) catch {
+          _ => ()
+        }
+        sweep_dir(root, full, reference, manifest)
+      } else {
+        force_rmdir(full)
+      }
+    } else if kind is Regular {
+      if !manifest.files.contains(relative) {
+        @fs.remove(full)
+      }
+    } else if kind is SymLink {
+      if !manifest.links.contains(relative) {
+        @fs.remove(full)
+      }
+    }
+  }
+}
+
+///|
+/// Rebuild a persistent workspace after an unrecoverable divergence
+/// (e.g. a failed mutation apply). Returns a fresh manifest.
+async fn rebuild_workspace(
+  workspace : String,
+  reference : String,
+) -> WorkspaceManifest {
+  force_rmdir(workspace) catch {
+    _ => ()
+  }
+  @fs.mkdir(workspace, recursive=true)
+  copy_tree(reference, reference, workspace)
+  snapshot_workspace(workspace)
 }
 
 ///|

@@ -17,6 +17,10 @@ fn print_help() -> Unit {
       #|      --fail-under <PCT>  Exit 1 if the mutation score is below PCT (0-100)
       #|      --file <TEXT>       Only mutate source paths containing TEXT
       #|      --json <PATH>       Write a JSON report to PATH
+      #|      --output-dir <DIR>  Report + survivor diffs (default: <dir>/.turtles)
+      #|      --iterate           Reuse KILLED/UNVIABLE from the previous report
+      #|      --timeout-multiplier <N>  Timeout = N x baseline (floor 10s)
+      #|      --affected          Experimental: scope tests to affected packages
       #|      --list              List mutations without running tests
       #|      --version           Print the turtles version and exit
       #|  -h, --help              Print help
@@ -33,6 +37,10 @@ fn parse_args(args : Array[String]) -> Config raise {
   let mut list = false
   let mut file_filter : String? = None
   let mut json_report : String? = None
+  let mut timeout_multiplier : Double? = None
+  let mut iterate = false
+  let mut output_dir : String? = None
+  let mut affected = false
   let mut i = 1
   // Every iteration must consume at least one argument, so the loop can run
   // at most args.length() times; more steps means the cursor went backwards.
@@ -98,12 +106,46 @@ fn parse_args(args : Array[String]) -> Config raise {
         }
         fail_under = Some(threshold)
       }
+      "--iterate" => iterate = true
+      "--affected" => affected = true
+      "--output-dir" => {
+        guard i + 1 < args.length() else {
+          fail("--output-dir requires a path")
+        }
+        i = i + 1
+        output_dir = Some(args[i])
+      }
+      "--timeout-multiplier" => {
+        guard i + 1 < args.length() else {
+          fail("--timeout-multiplier requires a factor")
+        }
+        i = i + 1
+        let factor = @string.parse_double(args[i]) catch {
+          _ => fail("invalid timeout multiplier: \{args[i]}")
+        }
+        guard factor > 0.0 else {
+          fail("--timeout-multiplier must be greater than zero")
+        }
+        timeout_multiplier = Some(factor)
+      }
       "--list" => list = true
       other => fail("unknown argument: \{other} (try --help)")
     }
     i = i + 1
   }
-  { dir, timeout_ms, jobs, fail_under, list, file_filter, json_report, }
+  {
+    dir,
+    timeout_ms,
+    jobs,
+    fail_under,
+    list,
+    file_filter,
+    json_report,
+    timeout_multiplier,
+    iterate,
+    output_dir,
+    affected,
+  }
 }
 
 ///|

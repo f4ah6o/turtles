@@ -1,7 +1,9 @@
 ///|
 test "build and VCS directories are skipped" {
   for
-    name in [".git", "target", "_build", ".mooncakes", ".moon", "node_modules"] {
+    name in [
+      ".git", "target", "_build", ".mooncakes", ".moon", ".turtles", "node_modules",
+    ] {
     assert_true(should_skip_dir(name))
   }
   for name in ["src", ".github", "targeted", "build", ".moonx"] {
@@ -186,6 +188,107 @@ async test "force_rmdir removes read-only directory trees" {
     @fs.chmod(locked, 0o555)
     force_rmdir(locked)
     assert_true(!@fs.exists(locked))
+  })
+}
+
+///|
+async test "sweep removes test-created state in non-moon dirs" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let source = path_join(temp, "source")
+    make_module_tree(source)
+    write_file(path_join(source, "a.mbt"), "pub fn a() -> Int { 1 }\n")
+    let workspace = path_join(temp, "workspace")
+    @fs.mkdir(workspace, recursive=true)
+    copy_tree(source, source, workspace)
+    let manifest = snapshot_workspace(workspace)
+    // mutant N's test writes into dirs that were never copied
+    for name in [".git", ".moon", "target", ".turtles", "node_modules"] {
+      let dir = path_join(workspace, name)
+      @fs.mkdir(dir, recursive=true)
+      write_file(path_join(dir, "stray.txt"), "mutant N state")
+    }
+    // moon-managed dirs keep warm state instead
+    for name in ["_build", ".mooncakes"] {
+      let dir = path_join(workspace, name)
+      @fs.mkdir(dir, recursive=true)
+      write_file(path_join(dir, "warm.txt"), "build cache")
+    }
+    // mutant N's test also dirties a real source file
+    write_file(path_join(workspace, "a.mbt"), "corrupted\n")
+    sweep_workspace(workspace, source, manifest)
+    // mutant N+1 must not observe any of it
+    for name in [".git", ".moon", "target", ".turtles", "node_modules"] {
+      assert_true(!@fs.exists(path_join(workspace, name)))
+    }
+    for name in ["_build", ".mooncakes"] {
+      assert_eq(
+        @fs.read_file(path_join(workspace, name + "/warm.txt")).text(),
+        "build cache",
+      )
+    }
+    assert_eq(
+      @fs.read_file(path_join(workspace, "a.mbt")).text(),
+      "pub fn a() -> Int { 1 }\n",
+    )
+  })
+}
+
+///|
+#cfg(not(platform="windows"))
+async test "sweep restores modes, link targets, and only root caches" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let source = path_join(temp, "source")
+    make_module_tree(source)
+    write_file(path_join(source, "a.mbt"), "pub fn a() -> Int { 1 }\n")
+    @fs.write_file(
+      path_join(source, "helper.sh"),
+      "#!/bin/sh\n",
+      permission=0o755,
+    )
+    write_file(path_join(source, "real.txt"), "linked")
+    @fs.symlink(path_join(source, "link.txt"), target="real.txt")
+    @fs.symlink(path_join(source, "gone.txt"), target="real.txt")
+    let pkg = path_join(source, "pkg")
+    @fs.mkdir(pkg, recursive=true)
+    write_file(path_join(pkg, "kept.mbt"), "real package file")
+    let workspace = path_join(temp, "workspace")
+    @fs.mkdir(workspace, recursive=true)
+    copy_tree(source, source, workspace)
+    let manifest = snapshot_workspace(workspace)
+    // mutant N's test mutates filesystem state without touching bytes
+    let helper = path_join(workspace, "helper.sh")
+    @fs.chmod(helper, 0o644)
+    @fs.remove(path_join(workspace, "link.txt"))
+    @fs.symlink(path_join(workspace, "link.txt"), target="a.mbt")
+    // an outright delete (no replacement) must recreate, not crash
+    @fs.remove(path_join(workspace, "gone.txt"))
+    // and hides strays inside same-named dirs below the root
+    let nested = path_join(workspace, "pkg")
+    let deep_build = path_join(nested, "_build")
+    @fs.mkdir(deep_build, recursive=true)
+    write_file(path_join(deep_build, "stray"), "leak")
+    let deep_cakes = path_join(nested, ".mooncakes")
+    @fs.mkdir(deep_cakes, recursive=true)
+    write_file(path_join(deep_cakes, "stray"), "leak")
+    let root_build = path_join(workspace, "_build")
+    @fs.mkdir(root_build, recursive=true)
+    write_file(path_join(root_build, "warm"), "cache")
+    // a mode-only change on an existing dir: entry stays, mode must not
+    @fs.chmod(nested, 0o555)
+    sweep_workspace(workspace, source, manifest)
+    // mutant N+1 sees the original state
+    assert_true(@fs.can_execute(helper))
+    assert_eq(@fs.read_file(path_join(workspace, "link.txt")).text(), "linked")
+    assert_eq(@fs.read_file(path_join(workspace, "gone.txt")).text(), "linked")
+    assert_true(@fs.can_write(path_join(workspace, "pkg")))
+    assert_true(!@fs.exists(deep_build))
+    assert_true(!@fs.exists(deep_cakes))
+    assert_true(@fs.exists(path_join(workspace, "pkg/kept.mbt")))
+    assert_eq(@fs.read_file(path_join(root_build, "warm")).text(), "cache")
   })
 }
 
