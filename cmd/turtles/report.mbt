@@ -95,22 +95,27 @@ fn build_report(
 
 ///|
 /// Write `report.json` plus a `survivors/<id>.diff` unified hunk for every
-/// surviving mutant — the artifact that makes a survivor immediately
-/// actionable. Stale diffs from an earlier run are removed so the directory
-/// only ever shows mutants the current run produced.
+/// survived or timed-out mutant — the artifact that makes an unresolved
+/// verdict immediately actionable. Stale diffs from an earlier run are
+/// removed so the directory only ever shows mutants the current run
+/// produced. The `*` self-ignore is written only for the default
+/// `.turtles` directory and only when absent: a custom `--output-dir` or
+/// an existing `.gitignore` belongs to the user.
 async fn write_output_dir(
   dir : String,
   root : String,
   results : Array[MutationResult],
   report : JsonReport,
+  default_dir : Bool,
 ) -> Unit {
   let survivors_dir = path_join(dir, "survivors")
   @fs.mkdir(survivors_dir, recursive=true, allow_exist=true)
-  // `*` keeps the whole output area out of the user's VCS.
-  @fs.write_file(path_join(dir, ".gitignore"), "*\n")
+  if default_dir && !@fs.exists(path_join(dir, ".gitignore")) {
+    @fs.write_file(path_join(dir, ".gitignore"), "*\n")
+  }
   let live_diffs : Map[String, Bool] = Map([])
   for result in results {
-    if result.outcome == Survived {
+    if result.outcome is (Survived | Timeout) {
       live_diffs[mutation_id(result.mutation) + ".diff"] = true
       let source_path = path_join(root, result.mutation.path)
       let original = @fs.read_file(source_path).text() catch { _ => continue }

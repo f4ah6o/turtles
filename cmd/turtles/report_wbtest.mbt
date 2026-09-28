@@ -24,6 +24,30 @@ fn report_test_result(outcome : Outcome) -> MutationResult {
 }
 
 ///|
+fn report_result_with(
+  replacement : String,
+  outcome : Outcome,
+) -> MutationResult {
+  let mutation = report_test_mutation("m.mbt")
+  {
+    mutation: {
+      path: mutation.path,
+      start: mutation.start,
+      end: mutation.end,
+      line: mutation.line,
+      column: mutation.column,
+      group: mutation.group,
+      original: mutation.original,
+      replacement,
+    },
+    outcome,
+    duration_ms: 1L,
+    reused: false,
+    packages: None,
+  }
+}
+
+///|
 test "count_outcomes tallies every outcome" {
   let results = [
     report_test_result(Killed),
@@ -95,5 +119,51 @@ async test "write_json_report emits schema-2 JSON" {
     // Rewriting to an existing directory must still succeed.
     write_json_report(path, report)
     assert_true(@fs.read_file(path).text().contains("\"killed\": 1"))
+  })
+}
+
+///|
+async test "write_output_dir scopes the self-ignore and diffs timeouts" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let root = path_join(temp, "module")
+    @fs.mkdir(root, recursive=true)
+    write_file(path_join(root, "m.mbt"), "a")
+    let results = [
+      report_result_with("c", Timeout),
+      report_result_with("d", Survived),
+      report_result_with("e", Killed),
+    ]
+    let report = build_report(
+      root,
+      None,
+      0L,
+      0L,
+      0L,
+      "module",
+      results,
+      [],
+      Map([]),
+      50.0,
+    )
+    // A user-chosen output dir never gets a .gitignore.
+    let custom = path_join(temp, "out")
+    write_output_dir(custom, root, results, report, false)
+    assert_true(!@fs.exists(path_join(custom, ".gitignore")))
+    // The default .turtles dir gets it once — an existing user file wins.
+    let default = path_join(root, ".turtles")
+    write_output_dir(default, root, results, report, true)
+    assert_eq(@fs.read_file(path_join(default, ".gitignore")).text(), "*\n")
+    write_file(path_join(default, ".gitignore"), "mine\n")
+    write_output_dir(default, root, results, report, true)
+    assert_eq(@fs.read_file(path_join(default, ".gitignore")).text(), "mine\n")
+    // Timeout is an unresolved verdict: it ships a diff artifact too.
+    let entries = @fs.readdir(
+      path_join(default, "survivors"),
+      include_hidden=false,
+      sort=false,
+    )
+    assert_eq(entries.length(), 2)
   })
 }

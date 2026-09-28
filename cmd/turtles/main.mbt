@@ -118,9 +118,9 @@ async fn execute_with_config(config : Config) -> Int {
   }
 
   let files = fingerprint_files(root)
-  let output_dir = match config.output_dir {
-    Some(dir) => dir
-    None => path_join(root, ".turtles")
+  let (output_dir, default_dir) = match config.output_dir {
+    Some(dir) => (dir, false)
+    None => (path_join(root, ".turtles"), true)
   }
   let reuse = if config.iterate {
     iterate_reuse(output_dir, mutations, files, moon_version)
@@ -164,7 +164,7 @@ async fn execute_with_config(config : Config) -> Int {
     root, moon_version, baseline_duration_ms, baseline_check_ms, baseline_test_ms,
     scope, results, skipped, files, score,
   )
-  write_output_dir(output_dir, root, results, report)
+  write_output_dir(output_dir, root, results, report, default_dir)
   println("  report:    \{path_join(output_dir, "report.json")}")
   match config.json_report {
     Some(path) => {
