@@ -20,6 +20,17 @@ fn should_skip_dir(name : String) -> Bool {
 }
 
 ///|
+/// Directories moon owns and regenerates on demand — kept warm across
+/// mutants rather than swept. `.mooncakes` is moon's vendored dep cache:
+/// never copied in, but `moon check` re-vendors it inside every workspace
+/// (~1.3 s), so sweeping it would pay a re-vendor for every mutant.
+/// `.git`/`.moon`/`target`/`node_modules`/`.turtles` are NOT moon-managed
+/// — a test creating them must not leak state into the next mutant.
+fn moon_owned_dir(name : String) -> Bool {
+  name == "_build" || name == ".mooncakes"
+}
+
+///|
 fn is_test_source(name : String) -> Bool {
   name.has_suffix("_test.mbt") || name.has_suffix("_wbtest.mbt")
 }
@@ -359,7 +370,7 @@ async fn sweep_dir(
     let kind = @fs.kind(full, follow_symlink=false)
     let relative = relative_path(root, full)
     if kind is Directory {
-      if should_skip_dir(name) {
+      if moon_owned_dir(name) {
         continue
       }
       if manifest.dirs.contains(relative) {

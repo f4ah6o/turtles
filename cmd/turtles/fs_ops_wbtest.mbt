@@ -192,6 +192,50 @@ async test "force_rmdir removes read-only directory trees" {
 }
 
 ///|
+async test "sweep removes test-created state in non-moon dirs" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let source = path_join(temp, "source")
+    make_module_tree(source)
+    write_file(path_join(source, "a.mbt"), "pub fn a() -> Int { 1 }\n")
+    let workspace = path_join(temp, "workspace")
+    @fs.mkdir(workspace, recursive=true)
+    copy_tree(source, source, workspace)
+    let manifest = snapshot_workspace(workspace)
+    // mutant N's test writes into dirs that were never copied
+    for name in [".git", ".moon", "target", ".turtles", "node_modules"] {
+      let dir = path_join(workspace, name)
+      @fs.mkdir(dir, recursive=true)
+      write_file(path_join(dir, "stray.txt"), "mutant N state")
+    }
+    // moon-managed dirs keep warm state instead
+    for name in ["_build", ".mooncakes"] {
+      let dir = path_join(workspace, name)
+      @fs.mkdir(dir, recursive=true)
+      write_file(path_join(dir, "warm.txt"), "build cache")
+    }
+    // mutant N's test also dirties a real source file
+    write_file(path_join(workspace, "a.mbt"), "corrupted\n")
+    sweep_workspace(workspace, source, manifest)
+    // mutant N+1 must not observe any of it
+    for name in [".git", ".moon", "target", ".turtles", "node_modules"] {
+      assert_true(!@fs.exists(path_join(workspace, name)))
+    }
+    for name in ["_build", ".mooncakes"] {
+      assert_eq(
+        @fs.read_file(path_join(workspace, name + "/warm.txt")).text(),
+        "build cache",
+      )
+    }
+    assert_eq(
+      @fs.read_file(path_join(workspace, "a.mbt")).text(),
+      "pub fn a() -> Int { 1 }\n",
+    )
+  })
+}
+
+///|
 async fn write_file(path : String, content : String) -> Unit {
   @fs.write_file(path, content)
 }
