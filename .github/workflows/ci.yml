@@ -58,19 +58,62 @@ jobs:
           status=0
           moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --json "$report" || status=$?
           test "$status" -eq 1
-          python - "$report" <<'PY'
+          parallel="$RUNNER_TEMP/turtles-isolation-parallel.json"
+          status=0
+          moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --jobs 4 --json "$parallel" || status=$?
+          test "$status" -eq 1
+          python - "$report" "$parallel" <<'PY'
           import json
           import sys
 
-          with open(sys.argv[1], encoding="utf-8") as handle:
-              report = json.load(handle)
+          def key(mutant):
+              return (
+                  mutant["path"],
+                  mutant["line"],
+                  mutant["column"],
+                  mutant["original"],
+                  mutant["replacement"],
+                  mutant["outcome"],
+                  mutant["group"],
+              )
 
-          summary = report["summary"]
-          assert summary["killed"] == 3, summary
-          assert summary["survived"] == 3, summary
-          assert summary["unviable"] == 0, summary
-          assert summary["timeout"] == 0, summary
+          reports = []
+          for path in sys.argv[1:]:
+              with open(path, encoding="utf-8") as handle:
+                  reports.append(json.load(handle))
+          for report in reports:
+              summary = report["summary"]
+              assert summary["killed"] == 3, summary
+              assert summary["survived"] == 3, summary
+              assert summary["unviable"] == 0, summary
+              assert summary["timeout"] == 0, summary
+              assert report["schema"] == 1
+              assert all("group" in mutant for mutant in report["mutants"])
+          sequential = [key(m) for m in reports[0]["mutants"]]
+          concurrent = [key(m) for m in reports[1]["mutants"]]
+          assert sequential == concurrent  # parallel runs keep discovery order
           PY
+      - name: fail-under gates on the mutation score
+        run: |
+          # The isolation fixture scores 50%: a threshold at the score passes
+          # despite the survivors, and one above it fails.
+          moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --fail-under 50
+          status=0
+          moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --fail-under 51 || status=$?
+          test "$status" -eq 1
+          status=0
+          moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --fail-under -1 || status=$?
+          test "$status" -eq 2
+          status=0
+          moon run cmd/turtles -- --dir fixtures/isolation --timeout 60 --fail-under 101 || status=$?
+          test "$status" -eq 2
+      - name: Smoke-test the installed binary
+        run: |
+          bin="$RUNNER_TEMP/turtles-bin"
+          moon install ./cmd/turtles --bin "$bin"
+          "$bin/turtles" --version
+          "$bin/turtles" --help
+          "$bin/turtles" --dir fixtures/basic --list
       - name: Emit JSON report for empty candidate sets
         run: |
           report="$RUNNER_TEMP/turtles-empty-report.json"

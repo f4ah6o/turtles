@@ -165,6 +165,8 @@ test "parse_args defaults" {
   let config = parse_args(["turtles"])
   inspect(config.dir, content=".")
   inspect(config.timeout_ms, content="60000")
+  inspect(config.jobs, content="1")
+  inspect(config.fail_under is None, content="true")
   inspect(config.list, content="false")
   inspect(config.file_filter.unwrap_or("none"), content="none")
   inspect(config.json_report.unwrap_or("none"), content="none")
@@ -186,6 +188,21 @@ test "parse_args reads every option" {
 }
 
 ///|
+test "parse_args reads jobs and fail-under" {
+  let config = parse_args(["turtles", "--jobs", "4", "--fail-under", "80"])
+  inspect(config.jobs, content="4")
+  inspect(config.fail_under.unwrap_or(-1.0), content="80")
+  let short = parse_args(["turtles", "-j", "2"])
+  inspect(short.jobs, content="2")
+  let fractional = parse_args(["turtles", "--fail-under", "79.5"])
+  inspect(fractional.fail_under.unwrap_or(-1.0), content="79.5")
+  let zero = parse_args(["turtles", "--fail-under", "0"])
+  inspect(zero.fail_under.unwrap_or(-1.0), content="0")
+  let hundred = parse_args(["turtles", "--fail-under", "100"])
+  inspect(hundred.fail_under.unwrap_or(-1.0), content="100")
+}
+
+///|
 test "parse_args rejects bad input" {
   assert_true(parse_args_fails(["turtles", "--bogus"]))
   assert_true(parse_args_fails(["turtles", "x"]))
@@ -196,6 +213,16 @@ test "parse_args rejects bad input" {
   assert_true(parse_args_fails(["turtles", "--timeout", "0"]))
   assert_true(parse_args_fails(["turtles", "--timeout", "-1"]))
   assert_true(parse_args_fails(["turtles", "--timeout", "abc"]))
+  assert_true(parse_args_fails(["turtles", "--jobs"]))
+  assert_true(parse_args_fails(["turtles", "--jobs", "0"]))
+  assert_true(parse_args_fails(["turtles", "--jobs", "-2"]))
+  assert_true(parse_args_fails(["turtles", "--jobs", "abc"]))
+  assert_true(parse_args_fails(["turtles", "--jobs", "1.5"]))
+  assert_true(parse_args_fails(["turtles", "--fail-under"]))
+  assert_true(parse_args_fails(["turtles", "--fail-under", "-1"]))
+  assert_true(parse_args_fails(["turtles", "--fail-under", "101"]))
+  assert_true(parse_args_fails(["turtles", "--fail-under", "abc"]))
+  assert_true(parse_args_fails(["turtles", "--fail-under", "nan"]))
 }
 
 ///|
@@ -231,4 +258,21 @@ test "config string escapes decode and stay inside the quotes" {
     "include = [\"a\\\\b\", \"c\\\"d\", \"e\\n\"]",
   )
   json_inspect(config.include_patterns, content=["a\\b", "c\"d", "e\n"])
+}
+
+///|
+/// `turtles --version` must report the module version. The manifest may sit
+/// at the module root or above the package directory depending on how the
+/// test binary is launched, so search a few candidate locations.
+async test "turtles_version matches moon.mod" {
+  let candidates = ["moon.mod", "../moon.mod", "../../moon.mod"]
+  let mut manifest : String? = None
+  for path in candidates {
+    if @fs.exists(path) {
+      manifest = Some(path)
+      break
+    }
+  }
+  let text = @fs.read_file(manifest.unwrap()).text()
+  assert_true(text.contains("version = \"\{turtles_version}\""))
 }

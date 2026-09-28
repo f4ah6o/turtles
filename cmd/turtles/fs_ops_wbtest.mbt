@@ -96,6 +96,30 @@ async test "collect_moonbit_files applies skip, suffix, and filter rules" {
 }
 
 ///|
+async test "nested module directories are not collected" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let root = path_join(temp, "module")
+    make_module_tree(root)
+    write_file(path_join(root, "a.mbt"), "pub fn a() -> Int { 1 }\n")
+    let nested = path_join(root, "nested")
+    make_module_tree(nested)
+    write_file(path_join(nested, "inner.mbt"), "pub fn i() -> Int { 2 }\n")
+    let deep = path_join(nested, "deep")
+    make_module_tree(deep)
+    write_file(path_join(deep, "d.mbt"), "pub fn d() -> Int { 3 }\n")
+    let plain = path_join(root, "plain")
+    @fs.mkdir(plain, recursive=true)
+    write_file(path_join(plain, "p.mbt"), "pub fn p() -> Int { 4 }\n")
+    let found : Array[String] = []
+    collect_moonbit_files(root, root, None, default_project_config(), found)
+    found.sort()
+    json_inspect(found, content=["a.mbt", "plain/p.mbt"])
+  })
+}
+
+///|
 async test "observed_permission mirrors read, write, and execute bits" {
   let temp = @fs.tmpdir(prefix="turtles-test")
   @async.with_task_group(group => {

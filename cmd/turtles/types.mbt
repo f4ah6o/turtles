@@ -23,6 +23,17 @@ fn operator_group_from_string(value : String) -> OperatorGroup raise {
 }
 
 ///|
+fn operator_group_name(group : OperatorGroup) -> String {
+  match group {
+    Comparison => "comparison"
+    Boolean => "boolean"
+    Arithmetic => "arithmetic"
+    Literal => "literal"
+    Condition => "condition"
+  }
+}
+
+///|
 struct ProjectConfig {
   include_patterns : Array[String]
   exclude_patterns : Array[String]
@@ -79,6 +90,8 @@ fn ProjectConfig::operator_enabled(
 struct Config {
   dir : String
   timeout_ms : Int
+  jobs : Int
+  fail_under : Double?
   list : Bool
   file_filter : String?
   json_report : String?
@@ -126,6 +139,7 @@ struct JsonMutation {
   path : String
   line : Int
   column : Int
+  group : String
   original : String
   replacement : String
   outcome : String

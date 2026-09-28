@@ -49,6 +49,15 @@ test "operator_group_from_string rejects unknown groups" {
 }
 
 ///|
+test "operator group names stay stable for reports" {
+  inspect(operator_group_name(Comparison), content="comparison")
+  inspect(operator_group_name(Boolean), content="boolean")
+  inspect(operator_group_name(Arithmetic), content="arithmetic")
+  inspect(operator_group_name(Literal), content="literal")
+  inspect(operator_group_name(Condition), content="condition")
+}
+
+///|
 test "outcome names stay stable for reports" {
   inspect(outcome_name(Killed), content="KILLED")
   inspect(outcome_name(Survived), content="SURVIVED")
