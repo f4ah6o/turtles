@@ -26,8 +26,10 @@ fn should_skip_dir(name : String) -> Bool {
 /// (~1.3 s), so sweeping it would pay a re-vendor for every mutant.
 /// `.git`/`.moon`/`target`/`node_modules`/`.turtles` are NOT moon-managed
 /// — a test creating them must not leak state into the next mutant.
-fn moon_owned_dir(name : String) -> Bool {
-  name == "_build" || name == ".mooncakes"
+/// Matched on the root-relative path: moon's caches live at the workspace
+/// root, and a same-named directory any deeper is test-created state.
+fn moon_owned_path(relative : String) -> Bool {
+  relative == "_build" || relative == ".mooncakes"
 }
 
 ///|
@@ -265,11 +267,20 @@ async fn force_rmdir(path : String) -> Unit {
 }
 
 ///|
-/// Snapshot of a freshly copied workspace: every regular file's fingerprint,
-/// plus the directory and symlink sets. The post-mutant sweep uses it to
-/// prove inter-mutant isolation inside a persistent workspace.
+/// A manifest's view of one regular file: content fingerprint plus the
+/// observed permission — a mode-only change is still a dirty file.
+struct ManifestFile {
+  hash : String
+  perm : Int
+}
+
+///|
+/// Snapshot of a freshly copied workspace: every regular file's fingerprint
+/// and permission, plus the directory and symlink sets. The post-mutant
+/// sweep uses it to prove inter-mutant isolation inside a persistent
+/// workspace.
 struct WorkspaceManifest {
-  files : Map[String, String]
+  files : Map[String, ManifestFile]
   dirs : Map[String, Bool]
   links : Map[String, Bool]
 }
@@ -292,9 +303,10 @@ async fn snapshot_manifest(
       manifest.dirs[relative] = true
       snapshot_manifest(root, full, manifest)
     } else if kind is Regular {
-      manifest.files[relative] = fingerprint_hex(
-        fnv1a(@fs.read_file(full).binary()),
-      )
+      manifest.files[relative] = {
+        hash: fingerprint_hex(fnv1a(@fs.read_file(full).binary())),
+        perm: observed_permission(full),
+      }
     } else if kind is SymLink {
       manifest.links[relative] = true
     }
@@ -326,7 +338,8 @@ async fn sweep_workspace(
     let current = path_join(root, relative)
     let dirty = if @fs.exists(current) {
       !(@fs.kind(current, follow_symlink=false) is Regular) ||
-      fingerprint_hex(fnv1a(@fs.read_file(current).binary())) != entry.1
+      observed_permission(current) != entry.1.perm ||
+      fingerprint_hex(fnv1a(@fs.read_file(current).binary())) != entry.1.hash
     } else {
       true
     }
@@ -342,16 +355,24 @@ async fn sweep_workspace(
       copy_regular_file(path_join(reference, relative), current)
     }
   }
+  // Recreate every manifest link from the reference: existence proves
+  // nothing about the target, and a retargeted link leaks state too.
   for entry in manifest.links {
     let relative = entry.0
     let current = path_join(root, relative)
-    let needs_recreate = !(@fs.exists(current) ||
-      @fs.kind(current, follow_symlink=false) is SymLink)
-    if needs_recreate {
-      let parent = @path.Path(current).dirname().to_string()
-      @fs.mkdir(parent, recursive=true, allow_exist=true)
-      copy_symlink(reference, path_join(reference, relative), root)
+    let kind = @fs.kind(current, follow_symlink=false)
+    if kind is Directory {
+      force_rmdir(current) catch {
+        _ => ()
+      }
+    } else if @fs.exists(current) || kind is SymLink {
+      @fs.remove(current) catch {
+        _ => ()
+      }
     }
+    let parent = @path.Path(current).dirname().to_string()
+    @fs.mkdir(parent, recursive=true, allow_exist=true)
+    copy_symlink(reference, path_join(reference, relative), root)
   }
 }
 
@@ -370,7 +391,7 @@ async fn sweep_dir(
     let kind = @fs.kind(full, follow_symlink=false)
     let relative = relative_path(root, full)
     if kind is Directory {
-      if moon_owned_dir(name) {
+      if moon_owned_path(relative) {
         continue
       }
       if manifest.dirs.contains(relative) {
