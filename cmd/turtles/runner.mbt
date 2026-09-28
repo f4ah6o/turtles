@@ -3,12 +3,33 @@ async fn run_moon_command(
   root : String,
   args : Array[String],
   timeout_ms : Int,
+  group_kill : Bool,
 ) -> CommandResult {
   // Nested moon output must not reach our own stdout: when turtles runs
   // inside `moon test`, subprocess output interleaves with the test driver
   // protocol and corrupts result parsing. The log lives next to the
   // workspace so the copied tree stays pristine.
   let output = @process.redirect_to_file(root + "-moon-output.log")
+  if group_kill {
+    // GNU `timeout` runs moon in a fresh process group and signals the
+    // GROUP on expiry — hard-killing only the moon pid orphans its
+    // moonc/test-exe children, which then burn CPU until reaped (observed
+    // in dogfood: orphaned test exes ran for hours). `with_timeout_opt`
+    // remains as a belt around `timeout` itself.
+    let secs = timeout_ms.to_double() / 1000.0
+    let wrapped = ["--signal=KILL", secs.to_string(), "moon"]
+    for arg in args {
+      wrapped.push(arg)
+    }
+    let exit_code = @async.with_timeout_opt(timeout_ms + 5000, () => {
+      @process.run("timeout", wrapped, cwd=root, stdout=output, stderr=output)
+    })
+    return match exit_code {
+      None | Some(124) => CommandTimeout
+      Some(0) => CommandSuccess
+      Some(_) => CommandFailure
+    }
+  }
   let exit_code = @async.with_timeout_opt(timeout_ms, () => {
     @process.run(
       "moon",
@@ -33,8 +54,9 @@ async fn classify_mutant(
   check_timeout_ms : Int,
   test_timeout_ms : Int,
   plan : TestPlan?,
+  group_kill : Bool,
 ) -> (Outcome, Array[String]?) {
-  match run_moon_command(root, ["check"], check_timeout_ms) {
+  match run_moon_command(root, ["check"], check_timeout_ms, group_kill) {
     CommandFailure => return (Unviable, None)
     CommandTimeout => return (Timeout, None)
     CommandSuccess => ()
@@ -52,7 +74,7 @@ async fn classify_mutant(
       }
     None => ()
   }
-  match run_moon_command(root, args, test_timeout_ms) {
+  match run_moon_command(root, args, test_timeout_ms, group_kill) {
     CommandSuccess => (Survived, packages)
     CommandFailure => (Killed, packages)
     CommandTimeout => (Timeout, packages)
@@ -68,9 +90,10 @@ async fn classify_mutant(
 async fn validate_workspace(
   workspace : String,
   timeout_ms : Int,
+  group_kill : Bool,
 ) -> (Int64, Int64) {
   let check_started = @async.now()
-  match run_moon_command(workspace, ["check"], timeout_ms) {
+  match run_moon_command(workspace, ["check"], timeout_ms, group_kill) {
     CommandSuccess => ()
     CommandFailure =>
       fail(
@@ -81,7 +104,7 @@ async fn validate_workspace(
   }
   let check_ms = @async.now() - check_started
   let test_started = @async.now()
-  match run_moon_command(workspace, ["test"], timeout_ms) {
+  match run_moon_command(workspace, ["test"], timeout_ms, group_kill) {
     CommandSuccess => ()
     CommandFailure =>
       fail(
@@ -277,9 +300,18 @@ async fn run_mutations(
     copy_tree(reference, reference, baseline)
     println("Baseline: moon check + moon test on pristine copy ...")
     let started = @async.now()
+    // Probe for GNU `timeout`: present everywhere on Linux coreutils; on
+    // systems without it we keep the single-pid hard-kill path (children
+    // of a killed moon may then be orphaned until they exit).
+    let probe_out = @process.redirect_to_file(temp + "/timeout-probe.log")
+    let group_kill = @async.with_timeout_opt(5000, () => {
+        @process.run("timeout", ["--version"], stdout=probe_out)
+      }) ==
+      Some(0)
     let (baseline_check_ms, baseline_test_ms) = validate_workspace(
       baseline,
       timeout_ms * 10,
+      group_kill,
     )
     let baseline_duration_ms = @async.now() - started
     println("Baseline: ok")
@@ -307,7 +339,7 @@ async fn run_mutations(
     }
     let classify = (workspace : String, mutation : Mutation) => {
       classify_mutant(
-        workspace, mutation, check_timeout_ms, test_timeout_ms, plan,
+        workspace, mutation, check_timeout_ms, test_timeout_ms, plan, group_kill,
       )
     }
     let results = run_mutation_pool(

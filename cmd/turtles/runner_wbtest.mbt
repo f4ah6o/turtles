@@ -266,7 +266,7 @@ async test "pristine workspace validation failure aborts as a setup error" {
     let workspace = path_join(temp, "workspace")
     @fs.mkdir(workspace, recursive=true)
     let mut raised = false
-    ignore(validate_workspace(workspace, 30000)) catch {
+    ignore(validate_workspace(workspace, 30000, false)) catch {
       _ => raised = true
     }
     assert_true(raised)
