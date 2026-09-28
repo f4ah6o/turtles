@@ -95,6 +95,10 @@ struct Config {
   list : Bool
   file_filter : String?
   json_report : String?
+  timeout_multiplier : Double?
+  iterate : Bool
+  output_dir : String?
+  affected : Bool
 }
 
 ///|
@@ -132,18 +136,25 @@ struct MutationResult {
   mutation : Mutation
   outcome : Outcome
   duration_ms : Int64
+  reused : Bool
+  packages : Array[String]?
 }
 
 ///|
 struct JsonMutation {
+  id : String
   path : String
   line : Int
   column : Int
+  offset : Int
+  end : Int
   group : String
   original : String
   replacement : String
   outcome : String
   duration_ms : Int64
+  reused : Bool
+  packages : Array[String]?
 } derive(ToJson)
 
 ///|
@@ -152,16 +163,39 @@ struct JsonSummary {
   survived : Int
   timeout : Int
   unviable : Int
+  reused : Int
   score : Double
 } derive(ToJson)
+
+///|
+struct JsonSkippedFile {
+  path : String
+  error : String
+} derive(ToJson)
+
+///|
+/// A file the scanner could not parse. Skipping keeps the rest of the
+/// module scannable, but mutants in that file are silently absent — the
+/// report must carry them so the gap stays visible.
+struct SkippedFile {
+  path : String
+  error : String
+}
 
 ///|
 struct JsonReport {
   schema : Int
   module_path : String
+  turtles_version : String
+  moon_version : String?
   baseline_duration_ms : Int64
+  baseline_check_ms : Int64?
+  baseline_test_ms : Int64?
+  test_scope : String
   mutants : Array[JsonMutation]
   summary : JsonSummary
+  skipped_files : Array[JsonSkippedFile]
+  files : Map[String, String]?
 } derive(ToJson(fields(module_path(rename="module"))))
 
 ///|

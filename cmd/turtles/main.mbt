@@ -5,15 +5,110 @@ async fn execute() -> Int {
 }
 
 ///|
+/// `moon --version`, best-effort — the report records it so --iterate can
+/// refuse to reuse verdicts produced by a different toolchain.
+async fn capture_moon_version() -> String? {
+  let tmp = @fs.tmpdir(prefix="turtles-version")
+  defer (force_rmdir(tmp) catch { _ => () })
+  let log = path_join(tmp, "moon-version.log")
+  let output = @process.redirect_to_file(log)
+  let code = @process.run("moon", ["--version"], stdout=output, stderr=output) catch {
+    _ => return None
+  }
+  guard code == 0 else { return None }
+  let text = @fs.read_file(log).text() catch { _ => return None }
+  let lines = text.split("\n").collect()
+  if lines.length() == 0 {
+    return None
+  }
+  let trimmed = lines[0].trim().to_owned()
+  if trimmed == "" {
+    None
+  } else {
+    Some(trimmed)
+  }
+}
+
+///|
+/// Content fingerprints of every file classification can observe: all .mbt
+/// sources (tests included — a test change can flip an outcome), package and
+/// module manifests, and turtles.toml. --iterate refuses reuse the moment
+/// any of these diverge from the recorded run.
+async fn fingerprint_files(root : String) -> Map[String, String] {
+  let files : Array[String] = []
+  collect_fingerprint_files(root, root, files)
+  let fingerprints : Map[String, String] = Map([])
+  for relative in files {
+    let bytes = @fs.read_file(path_join(root, relative)).binary() catch {
+      _ => continue
+    }
+    fingerprints[relative] = fingerprint_hex(fnv1a(bytes))
+  }
+  fingerprints
+}
+
+///|
+/// Map prior-report verdicts onto the current mutant set for --iterate.
+/// Index-aligned with `mutations`: Some(result) skips classification.
+async fn iterate_reuse(
+  output_dir : String,
+  mutations : Array[Mutation],
+  files : Map[String, String],
+  moon_version : String?,
+) -> Array[MutationResult?] {
+  let reuse : Array[MutationResult?] = Array::make(mutations.length(), None)
+  let report_path = path_join(output_dir, "report.json")
+  match load_prior_report(report_path) {
+    Some(prior) => {
+      let mut matched = 0
+      for i = 0; i < mutations.length(); i = i + 1 {
+        match prior_reusable_outcome(prior, mutations[i], files, moon_version) {
+          Some(outcome) => {
+            reuse[i] = Some({
+              mutation: mutations[i],
+              outcome,
+              duration_ms: 0L,
+              reused: true,
+              packages: None,
+            })
+            matched = matched + 1
+          }
+          None => ()
+        }
+      }
+      println(
+        "Iterate: reusing \{matched}/\{mutations.length()} verdicts from \{report_path}",
+      )
+    }
+    None =>
+      println("Iterate: no reusable report at \{report_path}; running fresh")
+  }
+  reuse
+}
+
+///|
 async fn execute_with_config(config : Config) -> Int {
   let root = @fs.realpath(config.dir)
   ensure_moonbit_module(root)
   let project_config = load_project_config(root)
-  let mutations = discover_mutations(root, config.file_filter, project_config)
+  let moon_version = capture_moon_version()
+  let skipped : Array[SkippedFile] = []
+  let mutations = discover_mutations(
+    root,
+    config.file_filter,
+    project_config,
+    skipped,
+  )
   if mutations.is_empty() {
     println("No mutations found.")
   } else {
     println("Found \{mutations.length()} mutation(s).")
+  }
+  if skipped.length() > 0 {
+    println("Skipped \{skipped.length()} file(s) that failed to parse:")
+    for entry in skipped {
+      println("  \{entry.path}: \{entry.error}")
+    }
   }
   if config.list {
     for mutation in mutations {
@@ -22,20 +117,38 @@ async fn execute_with_config(config : Config) -> Int {
     return 0
   }
 
-  let (baseline_duration_ms, results) = run_mutations(
+  let files = fingerprint_files(root)
+  let output_dir = match config.output_dir {
+    Some(dir) => dir
+    None => path_join(root, ".turtles")
+  }
+  let reuse = if config.iterate {
+    iterate_reuse(output_dir, mutations, files, moon_version)
+  } else {
+    Array::make(mutations.length(), None)
+  }
+  let (baseline_duration_ms, baseline_check_ms, baseline_test_ms, results, scope
+  ) = run_mutations(
     root,
     mutations,
     config.timeout_ms,
+    config.timeout_multiplier,
     config.jobs,
+    config.affected,
+    reuse,
   )
   let counts = count_outcomes(results)
   let score = mutation_score(counts.0, counts.1, counts.2)
+  let reused = results.filter(result => result.reused).length()
   println("")
   println("Mutation testing complete:")
   println("  killed:    \{counts.0}")
   println("  survived:  \{counts.1}")
   println("  timeout:   \{counts.2}")
   println("  unviable:  \{counts.3}")
+  if reused > 0 {
+    println("  reused:    \{reused}")
+  }
   println("  score:     \{score}%")
   match config.fail_under {
     Some(threshold) =>
@@ -47,9 +160,15 @@ async fn execute_with_config(config : Config) -> Int {
     None => ()
   }
 
+  let report = build_report(
+    root, moon_version, baseline_duration_ms, baseline_check_ms, baseline_test_ms,
+    scope, results, skipped, files, score,
+  )
+  write_output_dir(output_dir, root, results, report)
+  println("  report:    \{path_join(output_dir, "report.json")}")
   match config.json_report {
     Some(path) => {
-      write_json_report(path, root, baseline_duration_ms, results, score)
+      write_json_report(path, report)
       println("  json:      \{path}")
     }
     None => ()
