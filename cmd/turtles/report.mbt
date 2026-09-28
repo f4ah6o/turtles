@@ -39,6 +39,7 @@ async fn write_json_report(
       path: result.mutation.path,
       line: result.mutation.line,
       column: result.mutation.column,
+      group: operator_group_name(result.mutation.group),
       original: result.mutation.original,
       replacement: result.mutation.replacement,
       outcome: outcome_name(result.outcome),

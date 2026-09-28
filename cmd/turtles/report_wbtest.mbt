@@ -60,6 +60,7 @@ async test "write_json_report emits schema-1 JSON" {
     assert_true(content.contains("\"outcome\": \"KILLED\""))
     assert_true(content.contains("\"outcome\": \"SURVIVED\""))
     assert_true(content.contains("\"path\": \"m.mbt\""))
+    assert_true(content.contains("\"group\": \"comparison\""))
     assert_true(content.contains("\"original\": \"a\""))
     assert_true(content.contains("\"replacement\": \"b\""))
     // Rewriting to an existing directory must still succeed.

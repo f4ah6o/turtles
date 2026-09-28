@@ -1,4 +1,8 @@
 ///|
+/// Keep in sync with `version` in the module's moon.mod; a test guards it.
+let turtles_version : String = "0.2.0"
+
+///|
 fn print_help() -> Unit {
   println(
     (
@@ -7,12 +11,15 @@ fn print_help() -> Unit {
       #|Usage: turtles [OPTIONS]
       #|
       #|Options:
-      #|  -d, --dir <PATH>       MoonBit module directory (default: .)
-      #|      --timeout <SECS>   Per-command timeout (default: 60)
-      #|      --file <TEXT>      Only mutate source paths containing TEXT
-      #|      --json <PATH>      Write a JSON report to PATH
-      #|      --list             List mutations without running tests
-      #|  -h, --help             Print help
+      #|  -d, --dir <PATH>        MoonBit module directory (default: .)
+      #|      --timeout <SECS>    Per-command timeout (default: 60)
+      #|  -j, --jobs <N>          Run up to N mutants in parallel (default: 1)
+      #|      --fail-under <PCT>  Exit 1 if the mutation score is below PCT (0-100)
+      #|      --file <TEXT>       Only mutate source paths containing TEXT
+      #|      --json <PATH>       Write a JSON report to PATH
+      #|      --list              List mutations without running tests
+      #|      --version           Print the turtles version and exit
+      #|  -h, --help              Print help
     ),
   )
 }
@@ -21,6 +28,8 @@ fn print_help() -> Unit {
 fn parse_args(args : Array[String]) -> Config raise {
   let mut dir = "."
   let mut timeout_ms = 60000
+  let mut jobs = 1
+  let mut fail_under : Double? = None
   let mut list = false
   let mut file_filter : String? = None
   let mut json_report : String? = None
@@ -37,6 +46,10 @@ fn parse_args(args : Array[String]) -> Config raise {
     match arg {
       "-h" | "--help" => {
         print_help()
+        @sys.exit(0)
+      }
+      "--version" => {
+        println("turtles \{turtles_version}")
         @sys.exit(0)
       }
       "-d" | "--dir" => {
@@ -63,12 +76,34 @@ fn parse_args(args : Array[String]) -> Config raise {
         i = i + 1
         json_report = Some(args[i])
       }
+      "-j" | "--jobs" => {
+        guard i + 1 < args.length() else { fail("--jobs requires a count") }
+        i = i + 1
+        let count = @string.parse_int(args[i]) catch {
+          _ => fail("invalid jobs: \{args[i]}")
+        }
+        guard count > 0 else { fail("--jobs must be a positive integer") }
+        jobs = count
+      }
+      "--fail-under" => {
+        guard i + 1 < args.length() else {
+          fail("--fail-under requires a percentage")
+        }
+        i = i + 1
+        let threshold = @string.parse_double(args[i]) catch {
+          _ => fail("invalid fail-under threshold: \{args[i]}")
+        }
+        guard threshold >= 0.0 && threshold <= 100.0 else {
+          fail("--fail-under must be between 0 and 100")
+        }
+        fail_under = Some(threshold)
+      }
       "--list" => list = true
       other => fail("unknown argument: \{other} (try --help)")
     }
     i = i + 1
   }
-  { dir, timeout_ms, list, file_filter, json_report, }
+  { dir, timeout_ms, jobs, fail_under, list, file_filter, json_report, }
 }
 
 ///|

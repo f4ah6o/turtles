@@ -37,12 +37,12 @@ async test "mutant ordering does not change classifications" {
       default_project_config(),
     )
     inspect(mutations.length(), content="2")
-    let (_, forward) = run_mutations(module_dir, mutations, 120000)
+    let (_, forward) = run_mutations(module_dir, mutations, 120000, 2)
     let reversed : Array[Mutation] = []
     for i = mutations.length() - 1; i >= 0; i = i - 1 {
       reversed.push(mutations[i])
     }
-    let (_, backward) = run_mutations(module_dir, reversed, 120000)
+    let (_, backward) = run_mutations(module_dir, reversed, 120000, 1)
     let mut mismatched = false
     for result in forward {
       for other in backward {
@@ -79,13 +79,143 @@ async test "reported durations never exceed the wall clock" {
     )
     let started = @async.now()
     let (baseline_duration_ms, results) = run_mutations(
-      module_dir, mutations, 120000,
+      module_dir, mutations, 120000, 1,
     )
     let elapsed = @async.now() - started
     assert_true(baseline_duration_ms <= elapsed)
     for result in results {
       assert_true(result.duration_ms <= elapsed)
     }
+  })
+}
+
+///|
+/// A stub classifier records how many mutant runs overlap, so the pool's
+/// bound and ordering can be proven without invoking `moon`.
+async test "mutation pool bounds concurrency and preserves discovery order" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    write_order_fixture(module_dir)
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+    )
+    inspect(mutations.length(), content="2")
+    let pool_dir = path_join(temp, "pool")
+    @fs.mkdir(pool_dir, recursive=true)
+    let reference = path_join(pool_dir, "reference")
+    @fs.mkdir(reference, recursive=true)
+    copy_tree(module_dir, module_dir, reference)
+    let in_flight = Ref(0)
+    let max_in_flight = Ref(0)
+    let results = run_mutation_pool(pool_dir, reference, mutations, 3, 60000, (
+      workspace,
+      _timeout,
+    ) => {
+      in_flight.val = in_flight.val + 1
+      if in_flight.val > max_in_flight.val {
+        max_in_flight.val = in_flight.val
+      }
+      // mutant-1 is claimed first but sleeps longest, so completion order
+      // differs from claim order; the slot array still has to line results
+      // up with the mutation each workspace was built for.
+      let first = workspace.has_suffix("mutant-1")
+      @async.sleep(if first { 80 } else { 20 })
+      in_flight.val = in_flight.val - 1
+      if first {
+        Killed
+      } else {
+        Survived
+      }
+    })
+    inspect(results.length(), content="2")
+    assert_true(max_in_flight.val > 1)
+    assert_true(max_in_flight.val <= 3)
+    for i, result in results {
+      assert_true(same_mutation_identity(result.mutation, mutations[i]))
+    }
+    inspect(
+      results.map(result => outcome_name(result.outcome)).join(","),
+      content="KILLED,SURVIVED",
+    )
+    // Each mutant workspace was removed once its run finished.
+    json_inspect(@fs.readdir(pool_dir, include_hidden=true, sort=true), content=[
+      "reference",
+    ])
+  })
+}
+
+///|
+async test "jobs=1 keeps mutant runs sequential" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    write_order_fixture(module_dir)
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+    )
+    let pool_dir = path_join(temp, "pool")
+    @fs.mkdir(pool_dir, recursive=true)
+    let reference = path_join(pool_dir, "reference")
+    @fs.mkdir(reference, recursive=true)
+    copy_tree(module_dir, module_dir, reference)
+    let in_flight = Ref(0)
+    let max_in_flight = Ref(0)
+    let results = run_mutation_pool(pool_dir, reference, mutations, 1, 60000, (
+      _workspace,
+      _timeout,
+    ) => {
+      in_flight.val = in_flight.val + 1
+      if in_flight.val > max_in_flight.val {
+        max_in_flight.val = in_flight.val
+      }
+      @async.sleep(20)
+      in_flight.val = in_flight.val - 1
+      Killed
+    })
+    inspect(max_in_flight.val, content="1")
+    inspect(results.length(), content="2")
+  })
+}
+
+///|
+/// A classify that raises must fail the whole pool instead of dropping
+/// mutants silently: run_mutations surfaces it as a setup error (exit 2).
+async test "a failing mutant run fails the pool" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    write_order_fixture(module_dir)
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+    )
+    let pool_dir = path_join(temp, "pool")
+    @fs.mkdir(pool_dir, recursive=true)
+    let reference = path_join(pool_dir, "reference")
+    @fs.mkdir(reference, recursive=true)
+    copy_tree(module_dir, module_dir, reference)
+    let mut raised = false
+    ignore(
+      run_mutation_pool(pool_dir, reference, mutations, 2, 60000, (_w, _t) => {
+        @async.sleep(5)
+        fail("classifier exploded")
+      }),
+    ) catch {
+      _ => raised = true
+    }
+    assert_true(raised)
   })
 }
 

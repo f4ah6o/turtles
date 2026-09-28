@@ -33,6 +33,16 @@ async fn ensure_moonbit_module(root : String) -> Unit {
 }
 
 ///|
+/// A child directory carrying its own module manifest is a separate MoonBit
+/// module: the root module's `moon test` never reaches its code, so mutating
+/// it would produce false survivors. The root itself is never checked — the
+/// caller already validated it as a module.
+async fn is_nested_module(dir : String) -> Bool {
+  @fs.exists(path_join(dir, "moon.mod")) ||
+  @fs.exists(path_join(dir, "moon.mod.json"))
+}
+
+///|
 async fn collect_moonbit_files(
   root : String,
   dir : String,
@@ -45,7 +55,7 @@ async fn collect_moonbit_files(
     let full = path_join(dir, name)
     let kind = @fs.kind(full)
     if kind is Directory {
-      if !should_skip_dir(name) {
+      if !should_skip_dir(name) && !is_nested_module(full) {
         collect_moonbit_files(root, full, file_filter, project_config, output)
       }
       continue
