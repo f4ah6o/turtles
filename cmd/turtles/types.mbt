@@ -118,6 +118,7 @@ struct Mutation {
   group : OperatorGroup
   original : String
   replacement : String
+  visibility : MutantVisibility
 } derive(Eq)
 
 ///|
@@ -135,6 +136,27 @@ fn outcome_name(outcome : Outcome) -> String {
     Survived => "SURVIVED"
     Timeout => "TIMEOUT"
     Unviable => "UNVIABLE"
+  }
+}
+
+///|
+/// Visibility of the top-level declaration enclosing a mutant. Every
+/// `pub` form — `pub`, `pub(all)`, `pub(open)`, ... — is public; `priv`
+/// and the implicit default are private. `test` blocks carry no
+/// visibility marker, so their mutants sit in their own bucket, outside
+/// the public/private score split entirely.
+enum MutantVisibility {
+  Public
+  Private
+  Test
+} derive(Eq, Debug)
+
+///|
+fn visibility_name(visibility : MutantVisibility) -> String {
+  match visibility {
+    Public => "public"
+    Private => "private"
+    Test => "test"
   }
 }
 
@@ -157,6 +179,7 @@ struct JsonMutation {
   offset : Int
   end : Int
   group : String
+  visibility : String
   original : String
   replacement : String
   outcome : String
@@ -185,7 +208,23 @@ struct JsonSummary {
   score : Double
   kills_by_kind : JsonKillCounts
   property_only_kills : Int
+  score_public : JsonVisibilitySummary
+  score_private : JsonVisibilitySummary
 } derive(ToJson)
+
+///|
+/// Outcome tallies and score for one visibility bucket — the same
+/// killed-over-viable rule as the headline score, restricted to that
+/// bucket's mutants. Test-block mutants are counted in the headline
+/// score only; they appear in neither bucket.
+struct JsonVisibilitySummary {
+  mutants : Int
+  killed : Int
+  survived : Int
+  timeout : Int
+  unviable : Int
+  score : Double
+} derive(Debug, ToJson)
 
 ///|
 struct JsonSkippedFile {

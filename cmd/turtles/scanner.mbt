@@ -87,6 +87,8 @@ struct AstCandidateVisitor {
   /// trait name -> method name -> (declared return type, is async):
   /// `impl` methods inherit their signature, so `ret_ty` there is None
   trait_methods : Map[String, Map[String, (@syntax.Type?, Bool)]]
+  /// visibility of the top-level block currently being traversed
+  mut current_visibility : MutantVisibility
   mutations : Array[Mutation]
 }
 
@@ -113,6 +115,7 @@ fn AstCandidateVisitor::append_mutation(
     group,
     original,
     replacement,
+    visibility: self.current_visibility,
   }
   let mut duplicate = false
   for previous in self.mutations {
@@ -312,6 +315,38 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
     ifnot~,
     loc~,
   )
+}
+
+///|
+/// Map a declaration's `vis` to a mutant bucket: every `pub` form —
+/// `pub`, `pub(all)`, `pub(open)` — is public; `priv` and the implicit
+/// default are private.
+fn decl_visibility(vis : @syntax.Visibility) -> MutantVisibility {
+  match vis {
+    @syntax.Visibility::Pub(..) => Public
+    Default | Priv(..) => Private
+  }
+}
+
+///|
+/// The visibility bucket of a top-level block. `test` blocks have no
+/// visibility marker — their mutants are tagged Test and excluded from
+/// the public/private score split. `TopExpr`/`TopImport` carry no `vis`
+/// and fall back to the implicit default.
+fn impl_visibility(impl_ : @syntax.Impl) -> MutantVisibility {
+  match impl_ {
+    TopFuncDef(fun_decl~, ..) => decl_visibility(fun_decl.vis)
+    TopTypeDef(decl) => decl_visibility(decl.type_vis)
+    TopTrait(decl) => decl_visibility(decl.vis)
+    TopLetDef(vis~, ..) => decl_visibility(vis)
+    TopImpl(vis~, ..) => decl_visibility(vis)
+    TopView(vis~, ..) => decl_visibility(vis)
+    TopImplRelation(vis~, ..) => decl_visibility(vis)
+    TopUsing(vis~, ..) => decl_visibility(vis)
+    TopExtend(vis~, ..) => decl_visibility(vis)
+    TopTest(..) => Test
+    TopExpr(..) | TopImport(..) => Private
+  }
 }
 
 ///|
@@ -559,6 +594,7 @@ fn AstCandidateVisitor::record_body(
 
 ///|
 impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Impl(self, impl_) {
+  self.current_visibility = impl_visibility(impl_)
   let start = impl_span(impl_).0
   if self.skipped_starts.contains(start) {
     match self.skipped_blocks {
@@ -665,6 +701,7 @@ fn scan_source(
     skipped_starts: skipped_impl_starts(impls.to_array(), source),
     skipped_blocks,
     trait_methods: collect_trait_methods(impls.to_array()),
+    current_visibility: Private,
     mutations: [],
   }
   impls.each(impl_ => @syntax.IterVisitor::visit_Impl(visitor, impl_))

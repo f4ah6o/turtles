@@ -117,6 +117,10 @@ fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?)? {
         group,
         original,
         replacement,
+        // The parsed mutant only ever serves as an identity key; the
+        // reused result reuses the current scan's mutation, whose
+        // visibility is authoritative.
+        visibility: Private,
       },
       outcome,
       kills_from_json(json),

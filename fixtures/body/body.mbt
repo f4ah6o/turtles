@@ -139,3 +139,10 @@ pub trait Sized {
 pub impl Sized for Counter with size(self) {
   self.value
 }
+
+///|
+/// Private: called but its result is never asserted on, so every body
+/// mutant survives — exercising the private score bucket.
+fn unseen(a : Int, b : Int) -> Int {
+  a + b
+}

@@ -45,6 +45,7 @@ fn json_mutation(result : MutationResult) -> JsonMutation {
     offset: result.mutation.start,
     end: result.mutation.end,
     group: operator_group_name(result.mutation.group),
+    visibility: visibility_name(result.mutation.visibility),
     original: result.mutation.original,
     replacement: result.mutation.replacement,
     outcome: outcome_name(result.outcome),
@@ -99,6 +100,38 @@ fn kill_counts(results : Array[MutationResult]) -> (JsonKillCounts, Int) {
 }
 
 ///|
+/// Outcome tallies and score restricted to one visibility bucket,
+/// using the same killed-over-viable rule as the headline score.
+fn visibility_summary(
+  results : Array[MutationResult],
+  visibility : MutantVisibility,
+) -> JsonVisibilitySummary {
+  let mut mutants = 0
+  let mut killed = 0
+  let mut survived = 0
+  let mut timeout = 0
+  let mut unviable = 0
+  for result in results {
+    guard result.mutation.visibility == visibility else { continue }
+    mutants = mutants + 1
+    match result.outcome {
+      Killed => killed = killed + 1
+      Survived => survived = survived + 1
+      Timeout => timeout = timeout + 1
+      Unviable => unviable = unviable + 1
+    }
+  }
+  {
+    mutants,
+    killed,
+    survived,
+    timeout,
+    unviable,
+    score: mutation_score(killed, survived, timeout),
+  }
+}
+
+///|
 fn build_report(
   root : String,
   moon_version : String?,
@@ -145,6 +178,8 @@ fn build_report(
       score,
       kills_by_kind,
       property_only_kills,
+      score_public: visibility_summary(results, Public),
+      score_private: visibility_summary(results, Private),
     },
     skipped_files,
     files: Some(files),

@@ -15,6 +15,7 @@ fn mk_mutation(
     original,
     replacement,
     group: Arithmetic,
+    visibility: Private,
   }
 }
 
@@ -149,6 +150,7 @@ test "identity is content-anchored, not line-anchored" {
     original: "+",
     replacement: "-",
     group: Arithmetic,
+    visibility: Private,
   }
   assert_eq(mutation_identity(m1), mutation_identity(m2))
   // Same line, shifted bytes -> different identity.
