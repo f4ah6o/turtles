@@ -93,6 +93,7 @@ Per mutant, turtles reports `path:line:column`, `original -> replacement`, and i
 - arithmetic: `+ ↔ -`, `* ↔ /`, unary `-x → +x`
 - boolean literals: `true ↔ false`
 - conditions: whole `if` conditions → `true` or `false`
+- bodies (opt-in `body` group): a whole function body → a trivial literal of the declared return type (`0`/`1`/`-1` for signed ints, `0`/`1` for unsigned, `true`/`false` for `Bool`, `0.0`/`1.0` for floats, `""`/`"xyzzy"` for `String`, `()` for `Unit` or omitted annotations, `None` for `T?`/`Option[T]`, `[]` for `Array`/`FixedArray`, `{}` for `Map`)
 
 Outcome classification:
 
@@ -148,7 +149,30 @@ operators = ["comparison", "boolean", "arithmetic", "literal", "condition"]
 
 - `include`: optional path substrings; when non-empty, at least one must match the normalized relative source path.
 - `exclude`: optional path substrings; matching sources are skipped.
-- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, `literal`, and `condition` (whole-`if`-condition replacement). `boolean` covers only logical `&&`/`||`; selecting `condition` alone gives structural mutations without logical ones, and vice versa.
+- `operators`: optional operator groups. Supported groups are `comparison`, `boolean`, `arithmetic`, `literal`, `condition` (whole-`if`-condition replacement), and `body` (function-body replacement). `boolean` covers only logical `&&`/`||`; selecting `condition` alone gives structural mutations without logical ones, and vice versa. `body` is never enabled implicitly — with no `operators` list every group *except* `body` runs.
+- CLI `--operators <LIST>` takes a comma-separated group list and replaces the `turtles.toml` list wholesale, e.g. `turtles --dir . --operators body,comparison`.
+
+The `body` group skips functions it has no typed literal for — user-defined types, `Result`, tuples, type parameters — rather than generating UNVIABLE mutants, and it never touches `test` blocks, `async` functions, `extern`/FFI declarations, or bodies that are already a single trivial literal.
+
+### Skipping blocks
+
+A top-level block is excluded from mutation discovery when it carries the `#turtles.skip` attribute, or when a `// turtles: skip` line comment leads it (the comment also works inside the block's body):
+
+```mbt
+///|
+#turtles.skip
+pub fn fragile() -> Int {
+  1 + 2
+}
+
+// turtles: skip
+///|
+pub fn also_skipped() -> Int {
+  3 + 4
+}
+```
+
+`--list` reports how many blocks were skipped this way.
 
 - CLI `--file` remains an additional filter on top of `turtles.toml`.
 - Test files remain excluded by default and cannot be enabled through this configuration.

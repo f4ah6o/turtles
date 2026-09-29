@@ -134,13 +134,14 @@ async fn discover_mutations(
   file_filter : String?,
   project_config : ProjectConfig,
   skipped : Array[SkippedFile],
+  skipped_blocks : Array[SkippedBlock],
 ) -> Array[Mutation] {
   let files : Array[String] = []
   collect_moonbit_files(root, root, file_filter, project_config, files)
   let mutations : Array[Mutation] = []
   for relative in files {
     let source = @fs.read_file(path_join(root, relative)).text()
-    let found = scan_source(relative, source, project_config) catch {
+    let found = scan_source(relative, source, project_config, skipped_blocks~) catch {
       error => {
         skipped.push({ path: relative, error: error.to_string(), })
         continue

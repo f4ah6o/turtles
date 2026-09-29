@@ -36,6 +36,7 @@ async test "mutant ordering does not change classifications" {
       None,
       default_project_config(),
       [],
+      [],
     )
     inspect(mutations.length(), content="2")
     let (_, _, _, forward, _) = run_mutations(
@@ -94,6 +95,7 @@ async test "reported durations never exceed the wall clock" {
       None,
       default_project_config(),
       [],
+      [],
     )
     let started = @async.now()
     let (baseline_duration_ms, _, _, results, _) = run_mutations(
@@ -127,6 +129,7 @@ async test "mutation pool bounds concurrency and preserves discovery order" {
       module_dir,
       None,
       default_project_config(),
+      [],
       [],
     )
     inspect(mutations.length(), content="2")
@@ -188,6 +191,7 @@ async test "jobs=1 keeps mutant runs sequential" {
       None,
       default_project_config(),
       [],
+      [],
     )
     let pool_dir = path_join(temp, "pool")
     @fs.mkdir(pool_dir, recursive=true)
@@ -231,6 +235,7 @@ async test "a failing mutant run fails the pool" {
       module_dir,
       None,
       default_project_config(),
+      [],
       [],
     )
     let pool_dir = path_join(temp, "pool")
