@@ -313,6 +313,7 @@ test "mutation identity is explicitly deduplicated" {
     project_config: default_project_config(),
     skipped_starts: Map([]),
     skipped_blocks: None,
+    trait_methods: Map([]),
     mutations: [],
   }
   let plus = operator_specs()[8]
@@ -615,4 +616,20 @@ test "loose comments are not skip markers" {
 test "body mutants carry a distinct group for fingerprints" {
   inspect(operator_group_name(Body), content="body")
   inspect(operator_group_from_string("body") == Body, content="true")
+}
+
+///|
+test "impl method bodies use the trait's declared return type" {
+  let source =
+    #|trait Sized {
+    #|  size(Self) -> Int
+    #|}
+    #|impl Sized for Point with size(self) {
+    #|  self.x
+    #|}
+  let mutations = scan_source("sample.mbt", source, body_config())
+  inspect(mutations.length(), content="3")
+  assert_true(has_mutation(mutations, "self.x", "0"))
+  assert_true(has_mutation(mutations, "self.x", "1"))
+  assert_true(has_mutation(mutations, "self.x", "-1"))
 }

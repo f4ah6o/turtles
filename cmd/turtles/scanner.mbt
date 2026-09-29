@@ -84,6 +84,9 @@ struct AstCandidateVisitor {
   skipped_starts : Map[Int, Bool]
   /// out-param: receives one entry per skipped top-level block
   skipped_blocks : Array[SkippedBlock]?
+  /// trait name -> method name -> (declared return type, is async):
+  /// `impl` methods inherit their signature, so `ret_ty` there is None
+  trait_methods : Map[String, Map[String, (@syntax.Type?, Bool)]]
   mutations : Array[Mutation]
 }
 
@@ -410,6 +413,35 @@ fn skip_comment_positions(source : String) -> Array[Int] {
 }
 
 ///|
+fn long_ident_last(ident : @syntax.LongIdent) -> String {
+  match ident {
+    Ident(name~) => name
+    Dot(id~, ..) => id
+  }
+}
+
+///|
+/// Trait method signatures from `trait` declarations in the same file, for
+/// `impl` blocks that inherit them rather than redeclaring `ret_ty`.
+fn collect_trait_methods(
+  impls : Array[@syntax.Impl],
+) -> Map[String, Map[String, (@syntax.Type?, Bool)]] {
+  let traits : Map[String, Map[String, (@syntax.Type?, Bool)]] = Map([])
+  for impl_ in impls {
+    guard impl_ is TopTrait(decl) else { continue }
+    let methods : Map[String, (@syntax.Type?, Bool)] = Map([])
+    for trait_method in decl.methods {
+      methods[trait_method.name.name] = (
+        trait_method.return_type,
+        trait_method.is_async is Some(_),
+      )
+    }
+    traits[decl.name.name] = methods
+  }
+  traits
+}
+
+///|
 /// The impls a marker excludes. An attribute skips its own impl; a line
 /// comment skips the impl it leads — the first impl ending after the
 /// comment — so a marker under `///|` or inside a body selects the block.
@@ -578,7 +610,19 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Impl_TopImpl(
   attrs~,
   doc~,
 ) {
-  self.record_body(ret_ty, false, body)
+  let (return_type, is_async) = match ret_ty {
+    Some(_) => (ret_ty, false)
+    None =>
+      match self.trait_methods.get(long_ident_last(trait_.name)) {
+        Some(methods) =>
+          match methods.get(method_name.name) {
+            Some((ty, async_)) => (ty, async_)
+            None => (None, false)
+          }
+        None => (None, false)
+      }
+  }
+  self.record_body(return_type, is_async, body)
   @syntax.IterVisitor::visit_Impl_TopImpl(
     @syntax.IterVisitor::base(self),
     self_ty~,
@@ -620,6 +664,7 @@ fn scan_source(
     project_config,
     skipped_starts: skipped_impl_starts(impls.to_array(), source),
     skipped_blocks,
+    trait_methods: collect_trait_methods(impls.to_array()),
     mutations: [],
   }
   impls.each(impl_ => @syntax.IterVisitor::visit_Impl(visitor, impl_))
