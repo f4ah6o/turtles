@@ -311,6 +311,9 @@ test "mutation identity is explicitly deduplicated" {
     boundaries: source_byte_boundaries(bytes),
     specs: operator_specs(),
     project_config: default_project_config(),
+    skipped_starts: Map([]),
+    skipped_blocks: None,
+    trait_methods: Map([]),
     mutations: [],
   }
   let plus = operator_specs()[8]
@@ -460,4 +463,173 @@ test "existing fixture candidate parity" {
   assert_true(has_mutation(mutations, "true", "false"))
   assert_true(has_mutation(mutations, "flag", "true"))
   assert_true(has_mutation(mutations, "flag", "false"))
+}
+
+///|
+fn body_config() -> ProjectConfig raise {
+  parse_project_config("operators = [\"body\"]")
+}
+
+///|
+test "body group is opt-in: default config produces no body mutants" {
+  let source = "fn total(a : Int, b : Int) -> Int { a + b }"
+  let mutations = scan_source("sample.mbt", source, default_project_config())
+  // The `+` arithmetic mutant remains; no whole-body replacement appears.
+  inspect(mutations.length(), content="1")
+  inspect(mutations[0].group == Body, content="false")
+}
+
+///|
+test "body group replaces the whole body with typed literals" {
+  let source = "fn total(a : Int, b : Int) -> Int { a + b }"
+  let mutations = scan_source("sample.mbt", source, body_config())
+  inspect(mutations.length(), content="3")
+  assert_true(has_mutation(mutations, "a + b", "0"))
+  assert_true(has_mutation(mutations, "a + b", "1"))
+  assert_true(has_mutation(mutations, "a + b", "-1"))
+  for mutation in mutations {
+    inspect(mutation.group == Body, content="true")
+  }
+}
+
+///|
+test "body replacements follow the declared return type" {
+  let source =
+    #|fn a() -> Bool { x() }
+    #|fn b() -> String { x() }
+    #|fn c() -> Int? { x() }
+    #|fn d() -> Array[Int] { x() }
+    #|fn e() -> Map[String, Int] { x() }
+    #|fn f() -> Double { x() }
+    #|fn g() { x() }
+  let mutations = scan_source("sample.mbt", source, body_config())
+  assert_true(has_mutation(mutations, "x()", "true"))
+  assert_true(has_mutation(mutations, "x()", "false"))
+  assert_true(has_mutation(mutations, "x()", "\"\""))
+  assert_true(has_mutation(mutations, "x()", "\"xyzzy\""))
+  assert_true(has_mutation(mutations, "x()", "None"))
+  assert_true(has_mutation(mutations, "x()", "[]"))
+  assert_true(has_mutation(mutations, "x()", "{}"))
+  assert_true(has_mutation(mutations, "x()", "0.0"))
+  assert_true(has_mutation(mutations, "x()", "()"))
+  inspect(mutations.length(), content="10")
+}
+
+///|
+test "body group skips unsupported return types" {
+  let source =
+    #|struct Point { x : Int }
+    #|fn p() -> Point { mk() }
+    #|fn r() -> Result[Int, String] { mk() }
+    #|fn t() -> (Int, Int) { mk() }
+  let mutations = scan_source("sample.mbt", source, body_config())
+  inspect(mutations.length(), content="0")
+}
+
+///|
+test "body group skips trivial, async, and stub declarations" {
+  let source =
+    #|fn a() -> Int { 0 }
+    #|fn b() -> Int? { None }
+    #|async fn c() -> Int { x() }
+    #|extern "C" fn d() -> Int = "d"
+  let mutations = scan_source("sample.mbt", source, body_config())
+  inspect(mutations.length(), content="0")
+}
+
+///|
+test "test blocks never get body mutants" {
+  let source =
+    #|test "sum" {
+    #|  inspect(1 + 1, content="2")
+    #|}
+  let mutations = scan_source("sample.mbt", source, body_config())
+  inspect(mutations.length(), content="0")
+}
+
+///|
+test "turtles.skip attribute excludes the whole block" {
+  let source =
+    #|#turtles.skip
+    #|pub fn helper(a : Int) -> Int {
+    #|  a + 1
+    #|}
+    #|pub fn live(a : Int) -> Int {
+    #|  a + 2
+    #|}
+  let skipped : Array[SkippedBlock] = []
+  let mutations = scan_source(
+    "sample.mbt",
+    source,
+    default_project_config(),
+    skipped_blocks=skipped,
+  )
+  inspect(mutations.length(), content="1")
+  assert_true(has_mutation(mutations, "+", "-"))
+  inspect(skipped.length(), content="1")
+  // The reported line is the block's first line — the attribute itself.
+  inspect(skipped[0].line, content="1")
+}
+
+///|
+test "turtles: skip line comment excludes the following block" {
+  let source =
+    #|pub fn live(a : Int) -> Int {
+    #|  a + 1
+    #|}
+    #|// turtles: skip
+    #|pub fn helper(a : Int) -> Int {
+    #|  a + 2
+    #|}
+  let skipped : Array[SkippedBlock] = []
+  let mutations = scan_source(
+    "sample.mbt",
+    source,
+    default_project_config(),
+    skipped_blocks=skipped,
+  )
+  inspect(mutations.length(), content="1")
+  inspect(skipped.length(), content="1")
+  inspect(skipped[0].line, content="5")
+}
+
+///|
+test "loose comments are not skip markers" {
+  let source =
+    #|// turtles: skip this later
+    #|// turtles:skip
+    #|pub fn f(a : Int) -> Int {
+    #|  a + 1
+    #|}
+  let skipped : Array[SkippedBlock] = []
+  let mutations = scan_source(
+    "sample.mbt",
+    source,
+    default_project_config(),
+    skipped_blocks=skipped,
+  )
+  inspect(mutations.length(), content="1")
+  inspect(skipped.length(), content="0")
+}
+
+///|
+test "body mutants carry a distinct group for fingerprints" {
+  inspect(operator_group_name(Body), content="body")
+  inspect(operator_group_from_string("body") == Body, content="true")
+}
+
+///|
+test "impl method bodies use the trait's declared return type" {
+  let source =
+    #|trait Sized {
+    #|  size(Self) -> Int
+    #|}
+    #|impl Sized for Point with size(self) {
+    #|  self.x
+    #|}
+  let mutations = scan_source("sample.mbt", source, body_config())
+  inspect(mutations.length(), content="3")
+  assert_true(has_mutation(mutations, "self.x", "0"))
+  assert_true(has_mutation(mutations, "self.x", "1"))
+  assert_true(has_mutation(mutations, "self.x", "-1"))
 }

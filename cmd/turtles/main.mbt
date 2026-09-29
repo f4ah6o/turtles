@@ -92,13 +92,20 @@ async fn execute_with_config(config : Config) -> Int {
   let root = @fs.realpath(config.dir)
   ensure_moonbit_module(root)
   let project_config = load_project_config(root)
+  // `--operators` replaces the turtles.toml list wholesale.
+  let project_config = match config.operators {
+    Some(groups) => { ..project_config, operators: Some(groups), }
+    None => project_config
+  }
   let moon_version = capture_moon_version()
   let skipped : Array[SkippedFile] = []
+  let skipped_blocks : Array[SkippedBlock] = []
   let mutations = discover_mutations(
     root,
     config.file_filter,
     project_config,
     skipped,
+    skipped_blocks,
   )
   if mutations.is_empty() {
     println("No mutations found.")
@@ -111,9 +118,17 @@ async fn execute_with_config(config : Config) -> Int {
       println("  \{entry.path}: \{entry.error}")
     }
   }
+  if skipped_blocks.length() > 0 {
+    println(
+      "Skipped \{skipped_blocks.length()} block(s) marked with a turtles skip marker.",
+    )
+  }
   if config.list {
     for mutation in mutations {
       println(describe_mutation(mutation))
+    }
+    for block in skipped_blocks {
+      println("  \{block.path}:\{block.line} (skipped)")
     }
     return 0
   }

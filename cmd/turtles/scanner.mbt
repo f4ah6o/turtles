@@ -80,6 +80,13 @@ struct AstCandidateVisitor {
   boundaries : Array[Int]
   specs : Array[OpSpec]
   project_config : ProjectConfig
+  /// impl start offsets (scalar) excluded by a turtles skip marker
+  skipped_starts : Map[Int, Bool]
+  /// out-param: receives one entry per skipped top-level block
+  skipped_blocks : Array[SkippedBlock]?
+  /// trait name -> method name -> (declared return type, is async):
+  /// `impl` methods inherit their signature, so `ret_ty` there is None
+  trait_methods : Map[String, Map[String, (@syntax.Type?, Bool)]]
   mutations : Array[Mutation]
 }
 
@@ -308,25 +315,357 @@ impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Expr_If(
 }
 
 ///|
+/// The byte span of a top-level block, for skip-marker region checks.
+fn impl_span(impl_ : @syntax.Impl) -> (Int, Int) {
+  let loc = match impl_ {
+    TopExpr(loc~, ..) => loc
+    TopTest(loc~, ..) => loc
+    TopTypeDef(decl) => decl.loc
+    TopFuncDef(loc~, ..) => loc
+    TopLetDef(loc~, ..) => loc
+    TopTrait(decl) => decl.loc
+    TopImpl(loc~, ..) => loc
+    TopView(loc~, ..) => loc
+    TopImplRelation(loc~, ..) => loc
+    TopUsing(loc~, ..) => loc
+    TopExtend(loc~, ..) => loc
+    TopImport(loc~, ..) => loc
+  }
+  (loc.start.cnum, loc.end.cnum)
+}
+
+///|
+/// The line a top-level block starts on, for `--list` skip reporting.
+fn impl_line(impl_ : @syntax.Impl) -> Int {
+  let loc = match impl_ {
+    TopExpr(loc~, ..) => loc
+    TopTest(loc~, ..) => loc
+    TopTypeDef(decl) => decl.loc
+    TopFuncDef(loc~, ..) => loc
+    TopLetDef(loc~, ..) => loc
+    TopTrait(decl) => decl.loc
+    TopImpl(loc~, ..) => loc
+    TopView(loc~, ..) => loc
+    TopImplRelation(loc~, ..) => loc
+    TopUsing(loc~, ..) => loc
+    TopExtend(loc~, ..) => loc
+    TopImport(loc~, ..) => loc
+  }
+  loc.start.lnum
+}
+
+///|
+fn is_turtles_skip_attr(raw : String) -> Bool {
+  raw.trim().to_owned() == "#turtles.skip"
+}
+
+///|
+fn attrs_have_skip(attrs : @list.List[@attribute.Attribute]) -> Bool {
+  for attr in attrs {
+    if is_turtles_skip_attr(attr.raw) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Does this impl carry the `#turtles.skip` attribute? Attribute-bearing
+/// variants are checked directly; `TopExpr`/`TopImport` cannot carry one.
+fn impl_has_skip_attr(impl_ : @syntax.Impl) -> Bool {
+  match impl_ {
+    TopFuncDef(fun_decl~, ..) => attrs_have_skip(fun_decl.attrs)
+    TopTest(attrs~, ..) => attrs_have_skip(attrs)
+    TopTypeDef(decl) => attrs_have_skip(decl.attrs)
+    TopLetDef(attrs~, ..) => attrs_have_skip(attrs)
+    TopTrait(decl) => attrs_have_skip(decl.attrs)
+    TopImpl(attrs~, ..) => attrs_have_skip(attrs)
+    TopView(attrs~, ..) => attrs_have_skip(attrs)
+    TopImplRelation(attrs~, ..) => attrs_have_skip(attrs)
+    TopUsing(attrs~, ..) => attrs_have_skip(attrs)
+    TopExtend(attrs~, ..) => attrs_have_skip(attrs)
+    TopExpr(..) | TopImport(..) => false
+  }
+}
+
+///|
+/// A line comment is a skip marker when its text after `//` is exactly
+/// `turtles: skip` — trailing words or block comments never qualify.
+fn is_skip_comment(content : String) -> Bool {
+  let trimmed = content.trim().to_owned()
+  guard trimmed.has_prefix("//") else { return false }
+  trimmed[2:].to_owned().trim().to_owned() == "turtles: skip"
+}
+
+///|
+/// Scalar positions of `// turtles: skip` line comments. Comments are not
+/// part of the AST, so they are collected with the lexer in comment mode.
+fn skip_comment_positions(source : String) -> Array[Int] {
+  let positions : Array[Int] = []
+  let result = @lexer.tokens_from_string(source, comment=true)
+  for entry in result.tokens {
+    if entry.0 is @tokens.Token::COMMENT(comment) &&
+      is_skip_comment(comment.content) {
+      positions.push(entry.1.cnum)
+    }
+  }
+  positions
+}
+
+///|
+fn long_ident_last(ident : @syntax.LongIdent) -> String {
+  match ident {
+    Ident(name~) => name
+    Dot(id~, ..) => id
+  }
+}
+
+///|
+/// Trait method signatures from `trait` declarations in the same file, for
+/// `impl` blocks that inherit them rather than redeclaring `ret_ty`.
+fn collect_trait_methods(
+  impls : Array[@syntax.Impl],
+) -> Map[String, Map[String, (@syntax.Type?, Bool)]] {
+  let traits : Map[String, Map[String, (@syntax.Type?, Bool)]] = Map([])
+  for impl_ in impls {
+    guard impl_ is TopTrait(decl) else { continue }
+    let methods : Map[String, (@syntax.Type?, Bool)] = Map([])
+    for trait_method in decl.methods {
+      methods[trait_method.name.name] = (
+        trait_method.return_type,
+        trait_method.is_async is Some(_),
+      )
+    }
+    traits[decl.name.name] = methods
+  }
+  traits
+}
+
+///|
+/// The impls a marker excludes. An attribute skips its own impl; a line
+/// comment skips the impl it leads — the first impl ending after the
+/// comment — so a marker under `///|` or inside a body selects the block.
+fn skipped_impl_starts(
+  impls : Array[@syntax.Impl],
+  source : String,
+) -> Map[Int, Bool] {
+  let skipped : Map[Int, Bool] = Map([])
+  for impl_ in impls {
+    if impl_has_skip_attr(impl_) {
+      skipped[impl_span(impl_).0] = true
+    }
+  }
+  for position in skip_comment_positions(source) {
+    for impl_ in impls {
+      if impl_span(impl_).1 > position {
+        skipped[impl_span(impl_).0] = true
+        break
+      }
+    }
+  }
+  skipped
+}
+
+///|
+/// The `body` group replaces a whole function body with a trivial value of
+/// the declared return type (cargo-mutants' primary generator). MoonBit
+/// has no `Default` trait, so only types with a canonical literal get a
+/// replacement; every other type — including `Result` — is skipped rather
+/// than risking UNVIABLE noise.
+fn body_replacements(return_type : @syntax.Type?) -> Array[String] {
+  match return_type {
+    None => ["()"]
+    Some(ty) =>
+      match ty {
+        @syntax.Type::Option(..) => ["None"]
+        @syntax.Type::Tuple(tys~, ..) =>
+          if tys.is_empty() {
+            ["()"]
+          } else {
+            []
+          }
+        @syntax.Type::Name(constr_id~, tys~, ..) => {
+          guard constr_id.id is @syntax.LongIdent::Ident(name~) else {
+            return []
+          }
+          if tys.is_empty() {
+            match name {
+              "Unit" => ["()"]
+              "Bool" => ["true", "false"]
+              "Int" | "Int64" | "Int16" => ["0", "1", "-1"]
+              "UInt" | "UInt64" | "UInt16" | "Byte" => ["0", "1"]
+              "Double" | "Float" => ["0.0", "1.0"]
+              "String" => ["\"\"", "\"xyzzy\""]
+              _ => []
+            }
+          } else {
+            match name {
+              "Option" => ["None"]
+              "Array" | "FixedArray" => ["[]"]
+              "Map" => ["{}"]
+              _ => []
+            }
+          }
+        }
+        _ => []
+      }
+  }
+}
+
+///|
+/// A body that is already a single trivial literal has no meaningful body
+/// mutant — replacing it would only restate a literal mutation.
+fn is_trivial_body(expr : @syntax.Expr) -> Bool {
+  match expr {
+    Constant(..) | Unit(..) | Constr(..) | MultilineString(..) => true
+    Tuple(exprs~, ..) => exprs.is_empty()
+    Array(exprs~, ..) => exprs.is_empty()
+    Map(elems~, ..) => elems.is_empty()
+    _ => false
+  }
+}
+
+///|
+fn AstCandidateVisitor::record_body(
+  self : AstCandidateVisitor,
+  return_type : @syntax.Type?,
+  is_async : Bool,
+  decl_body : @syntax.DeclBody,
+) -> Unit {
+  if !self.project_config.operator_enabled(Body) {
+    return
+  }
+  // `async` bodies may suspend; `extern`/FFI declarations (DeclStubs) and
+  // signature-only declarations (DeclNone) have no expression to replace.
+  if is_async {
+    return
+  }
+  guard decl_body is @syntax.DeclBody::DeclBody(expr~) else { return }
+  if is_trivial_body(expr) {
+    return
+  }
+  let loc = expr.loc()
+  for replacement in body_replacements(return_type) {
+    self.record_range(
+      Body,
+      replacement,
+      loc.start.cnum,
+      loc.end.cnum,
+      loc.start.lnum,
+      loc.start.column(),
+    )
+  }
+}
+
+///|
+impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Impl(self, impl_) {
+  let start = impl_span(impl_).0
+  if self.skipped_starts.contains(start) {
+    match self.skipped_blocks {
+      Some(blocks) => blocks.push({ path: self.path, line: impl_line(impl_), })
+      None => ()
+    }
+    return
+  }
+  @syntax.IterVisitor::visit_Impl(@syntax.IterVisitor::base(self), impl_)
+}
+
+///|
+impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Impl_TopFuncDef(
+  self,
+  fun_decl~,
+  decl_body~,
+  where_clause~,
+  loc~,
+) {
+  self.record_body(
+    fun_decl.return_type,
+    fun_decl.is_async is Some(_),
+    decl_body,
+  )
+  @syntax.IterVisitor::visit_Impl_TopFuncDef(
+    @syntax.IterVisitor::base(self),
+    fun_decl~,
+    decl_body~,
+    where_clause~,
+    loc~,
+  )
+}
+
+///|
+impl @syntax.IterVisitor for AstCandidateVisitor with fn visit_Impl_TopImpl(
+  self,
+  self_ty~,
+  trait_~,
+  method_name~,
+  quantifiers~,
+  method_quantifiers~,
+  params~,
+  ret_ty~,
+  err_ty~,
+  nocancel_~,
+  body~,
+  vis~,
+  loc~,
+  attrs~,
+  doc~,
+) {
+  let (return_type, is_async) = match ret_ty {
+    Some(_) => (ret_ty, false)
+    None =>
+      match self.trait_methods.get(long_ident_last(trait_.name)) {
+        Some(methods) =>
+          match methods.get(method_name.name) {
+            Some((ty, async_)) => (ty, async_)
+            None => (None, false)
+          }
+        None => (None, false)
+      }
+  }
+  self.record_body(return_type, is_async, body)
+  @syntax.IterVisitor::visit_Impl_TopImpl(
+    @syntax.IterVisitor::base(self),
+    self_ty~,
+    trait_~,
+    method_name~,
+    quantifiers~,
+    method_quantifiers~,
+    params~,
+    ret_ty~,
+    err_ty~,
+    nocancel_~,
+    body~,
+    vis~,
+    loc~,
+    attrs~,
+    doc~,
+  )
+}
+
+///|
 fn scan_source(
   path : String,
   source : String,
   project_config : ProjectConfig,
+  skipped_blocks? : Array[SkippedBlock],
 ) -> Array[Mutation] raise {
   let bytes = @utf8.encode(source)
+  let (impls, reports) = @parser.parse_string(source, name=path)
+  if reports.length() != 0 {
+    fail(
+      "parser failed for \{path}: \{reports.length()} diagnostic(s); refusing lexical fallback",
+    )
+  }
   let visitor = AstCandidateVisitor::{
     path,
     bytes,
     boundaries: source_byte_boundaries(bytes),
     specs: operator_specs(),
     project_config,
+    skipped_starts: skipped_impl_starts(impls.to_array(), source),
+    skipped_blocks,
+    trait_methods: collect_trait_methods(impls.to_array()),
     mutations: [],
-  }
-  let (impls, reports) = @parser.parse_string(source, name=path)
-  if reports.length() != 0 {
-    fail(
-      "parser failed for \{path}: \{reports.length()} diagnostic(s); refusing lexical fallback",
-    )
   }
   impls.each(impl_ => @syntax.IterVisitor::visit_Impl(visitor, impl_))
   visitor.mutations

@@ -224,6 +224,19 @@ test "parse_args reads jobs and fail-under" {
 }
 
 ///|
+test "parse_args reads --operators as a comma-separated group list" {
+  let config = parse_args(["turtles", "--operators", "body,comparison"])
+  let groups = config.operators.unwrap()
+  inspect(groups.length(), content="2")
+  inspect(groups[0] == Body, content="true")
+  inspect(groups[1] == Comparison, content="true")
+  inspect(parse_args(["turtles"]).operators is None, content="true")
+  assert_true(parse_args_fails(["turtles", "--operators"]))
+  assert_true(parse_args_fails(["turtles", "--operators", "bogus"]))
+  assert_true(parse_args_fails(["turtles", "--operators", ""]))
+}
+
+///|
 test "parse_args rejects bad input" {
   assert_true(parse_args_fails(["turtles", "--bogus"]))
   assert_true(parse_args_fails(["turtles", "x"]))

@@ -5,6 +5,7 @@ enum OperatorGroup {
   Arithmetic
   Literal
   Condition
+  Body
 } derive(Eq)
 
 ///|
@@ -15,9 +16,10 @@ fn operator_group_from_string(value : String) -> OperatorGroup raise {
     "arithmetic" => Arithmetic
     "literal" | "boolean-literal" | "boolean-literals" => Literal
     "condition" | "conditions" => Condition
+    "body" | "bodies" => Body
     other =>
       fail(
-        "unknown operator group \{other}; expected comparison, boolean, arithmetic, literal, or condition",
+        "unknown operator group \{other}; expected comparison, boolean, arithmetic, literal, condition, or body",
       )
   }
 }
@@ -30,6 +32,7 @@ fn operator_group_name(group : OperatorGroup) -> String {
     Arithmetic => "arithmetic"
     Literal => "literal"
     Condition => "condition"
+    Body => "body"
   }
 }
 
@@ -74,7 +77,9 @@ fn ProjectConfig::operator_enabled(
   group : OperatorGroup,
 ) -> Bool {
   match self.operators {
-    None => true
+    // `body` is opt-in: replacing whole function bodies is too aggressive a
+    // default, so an unset operator list means every group except Body.
+    None => group != Body
     Some(operators) => {
       for operator in operators {
         if operator == group {
@@ -99,6 +104,7 @@ struct Config {
   iterate : Bool
   output_dir : String?
   affected : Bool
+  operators : Array[OperatorGroup]?
 }
 
 ///|
@@ -193,6 +199,14 @@ struct JsonSkippedFile {
 struct SkippedFile {
   path : String
   error : String
+}
+
+///|
+/// A top-level block excluded from mutation discovery by a skip marker
+/// (`#turtles.skip` or a `// turtles: skip` line comment).
+struct SkippedBlock {
+  path : String
+  line : Int
 }
 
 ///|

@@ -21,6 +21,8 @@ fn print_help() -> Unit {
       #|      --iterate           Reuse KILLED/UNVIABLE from the previous report
       #|      --timeout-multiplier <N>  Timeout = N x baseline (floor 10s)
       #|      --affected          Experimental: scope tests to affected packages
+      #|      --operators <LIST>  Comma-separated operator groups (overrides
+      #|                        turtles.toml; body is opt-in only)
       #|      --list              List mutations without running tests
       #|      --version           Print the turtles version and exit
       #|  -h, --help              Print help
@@ -41,6 +43,7 @@ fn parse_args(args : Array[String]) -> Config raise {
   let mut iterate = false
   let mut output_dir : String? = None
   let mut affected = false
+  let cli_operators : Array[OperatorGroup] = []
   let mut i = 1
   // Every iteration must consume at least one argument, so the loop can run
   // at most args.length() times; more steps means the cursor went backwards.
@@ -108,6 +111,17 @@ fn parse_args(args : Array[String]) -> Config raise {
       }
       "--iterate" => iterate = true
       "--affected" => affected = true
+      "--operators" => {
+        guard i + 1 < args.length() else {
+          fail("--operators requires a group list")
+        }
+        i = i + 1
+        for part in args[i].split(",") {
+          let name = part.trim().to_owned()
+          guard name != "" else { fail("invalid --operators list: \{args[i]}") }
+          cli_operators.push(operator_group_from_string(name))
+        }
+      }
       "--output-dir" => {
         guard i + 1 < args.length() else {
           fail("--output-dir requires a path")
@@ -145,6 +159,11 @@ fn parse_args(args : Array[String]) -> Config raise {
     iterate,
     output_dir,
     affected,
+    operators: if cli_operators.is_empty() {
+      None
+    } else {
+      Some(cli_operators)
+    },
   }
 }
 
