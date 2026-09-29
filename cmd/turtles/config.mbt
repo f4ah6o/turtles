@@ -23,6 +23,7 @@ fn print_help() -> Unit {
       #|      --affected          Experimental: scope tests to affected packages
       #|      --operators <LIST>  Comma-separated operator groups (overrides
       #|                        turtles.toml; body is opt-in only)
+      #|      --emit-regressions  Write regression-test templates for property kills
       #|      --list              List mutations without running tests
       #|      --version           Print the turtles version and exit
       #|  -h, --help              Print help
@@ -44,6 +45,7 @@ fn parse_args(args : Array[String]) -> Config raise {
   let mut output_dir : String? = None
   let mut affected = false
   let cli_operators : Array[OperatorGroup] = []
+  let mut emit_regressions = false
   let mut i = 1
   // Every iteration must consume at least one argument, so the loop can run
   // at most args.length() times; more steps means the cursor went backwards.
@@ -122,6 +124,7 @@ fn parse_args(args : Array[String]) -> Config raise {
           cli_operators.push(operator_group_from_string(name))
         }
       }
+      "--emit-regressions" => emit_regressions = true
       "--output-dir" => {
         guard i + 1 < args.length() else {
           fail("--output-dir requires a path")
@@ -164,6 +167,7 @@ fn parse_args(args : Array[String]) -> Config raise {
     } else {
       Some(cli_operators)
     },
+    emit_regressions,
   }
 }
 

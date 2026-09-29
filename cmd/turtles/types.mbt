@@ -105,6 +105,7 @@ struct Config {
   output_dir : String?
   affected : Bool
   operators : Array[OperatorGroup]?
+  emit_regressions : Bool
 }
 
 ///|
@@ -223,6 +224,7 @@ struct JsonReport {
   summary : JsonSummary
   skipped_files : Array[JsonSkippedFile]
   files : Map[String, String]?
+  regressions : Array[String]
 } derive(ToJson(fields(module_path(rename="module"))))
 
 ///|

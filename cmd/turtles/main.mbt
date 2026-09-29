@@ -176,11 +176,35 @@ async fn execute_with_config(config : Config) -> Int {
     None => ()
   }
 
+  let regressions = if config.emit_regressions {
+    regression_paths(results)
+  } else {
+    []
+  }
   let report = build_report(
-    root, moon_version, baseline_duration_ms, baseline_check_ms, baseline_test_ms,
-    scope, results, skipped, files, score,
+    root,
+    moon_version,
+    baseline_duration_ms,
+    baseline_check_ms,
+    baseline_test_ms,
+    scope,
+    results,
+    skipped,
+    files,
+    score,
+    regressions~,
   )
-  write_output_dir(output_dir, root, results, report, default_dir)
+  write_output_dir(
+    output_dir,
+    root,
+    results,
+    report,
+    default_dir,
+    emit_regressions=config.emit_regressions,
+  )
+  if config.emit_regressions {
+    println("  regressions: \{regressions.length()} template(s)")
+  }
   println("  report:    \{path_join(output_dir, "report.json")}")
   match config.json_report {
     Some(path) => {
