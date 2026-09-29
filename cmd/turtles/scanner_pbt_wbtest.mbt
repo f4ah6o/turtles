@@ -70,6 +70,7 @@ fn pbt_range_mutation(
       group: Literal,
       original: @utf8.decode(bytes[boundaries[lo]:boundaries[hi]]),
       replacement,
+      visibility: Private,
     },
   )
 }
@@ -150,6 +151,34 @@ fn pbt_body_table() -> Array[(String, Array[String])] {
     ("FixedArray[Int]", ["[]"]),
     ("Map[String, Int]", ["{}"]),
   ]
+}
+
+///|
+/// Declarations paired with the visibility bucket their mutants must get:
+/// every `pub` form is public, `priv`/default are private, `test` blocks
+/// are their own bucket.
+fn pbt_visibility_table() -> Array[(String, MutantVisibility)] {
+  [
+    ("fn f() { 1 + 2 }", Private),
+    ("priv fn f() { 1 + 2 }", Private),
+    ("pub fn f() { 1 + 2 }", Public),
+    ("pub(all) fn f() { 1 + 2 }", Public),
+    ("pub(open) fn f() { 1 + 2 }", Public),
+    ("let x = 1 + 2", Private),
+    ("pub let x = 1 + 2", Public),
+    ("test \"t\" { 1 + 2 }", Test),
+  ]
+}
+
+///|
+test "prop mutants inherit the visibility of their enclosing declaration" {
+  let table = pbt_visibility_table()
+  @quickcheck.check((raw : Int) => {
+    let (source, expected) = table[pbt_boundary_index(raw, table.length())]
+    scan_source("prop.mbt", source, parse_project_config(""))
+    .iter()
+    .all(m => m.visibility == expected)
+  })
 }
 
 ///|

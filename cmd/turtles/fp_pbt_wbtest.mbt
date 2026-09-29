@@ -1,6 +1,6 @@
 ///|
-/// A mutation assembled from arbitrary fields: `line`/`column` are display
-/// metadata outside `mutation_identity`, so they are fixed here.
+/// A mutation assembled from arbitrary fields: `line`/`column`/`visibility`
+/// sit outside `mutation_identity`, so they are fixed here.
 fn pbt_mutation(
   path : String,
   start : Int,
@@ -17,6 +17,7 @@ fn pbt_mutation(
     group: Literal,
     original,
     replacement,
+    visibility: Private,
   }
 }
 
@@ -49,6 +50,21 @@ test "prop mutation_identity separates every field" {
     base_identity &&
     mutation_identity({ ..base, replacement: base.replacement + "!", }) !=
     base_identity
+  })
+}
+
+///|
+test "prop mutation_identity ignores line column and visibility" {
+  // Identity is content-anchored: display metadata and the visibility
+  // bucket must not change it.
+  @quickcheck.check((input : (String, Int, Int, String, String, Int)) => {
+    let (path, start, end, original, replacement, line) = input
+    let base = pbt_mutation(path, start, end, original, replacement)
+    let base_identity = mutation_identity(base)
+    mutation_identity({ ..base, line, }) == base_identity &&
+    mutation_identity({ ..base, column: line, }) == base_identity &&
+    mutation_identity({ ..base, visibility: Public, }) == base_identity &&
+    mutation_identity({ ..base, visibility: Test, }) == base_identity
   })
 }
 
