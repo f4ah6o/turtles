@@ -55,29 +55,21 @@ async fn classify_mutant(
   test_timeout_ms : Int,
   plan : TestPlan?,
   group_kill : Bool,
-) -> (Outcome, Array[String]?) {
+) -> (Outcome, Array[String]?, Array[Kill]?) {
   match run_moon_command(root, ["check"], check_timeout_ms, group_kill) {
-    CommandFailure => return (Unviable, None)
-    CommandTimeout => return (Timeout, None)
+    CommandFailure => return (Unviable, None, None)
+    CommandTimeout => return (Timeout, None, None)
     CommandSuccess => ()
   }
-  let args : Array[String] = ["test"]
   let packages = match plan {
     Some(plan) => plan.test_packages_for(mutation)
     None => None
   }
-  match packages {
-    Some(selected) =>
-      for pkg_name in selected {
-        args.push("-p")
-        args.push(pkg_name)
-      }
-    None => ()
-  }
+  let args = mutant_test_args(packages)
   match run_moon_command(root, args, test_timeout_ms, group_kill) {
-    CommandSuccess => (Survived, packages)
-    CommandFailure => (Killed, packages)
-    CommandTimeout => (Timeout, packages)
+    CommandSuccess => (Survived, packages, None)
+    CommandFailure => (Killed, packages, last_test_failures(root))
+    CommandTimeout => (Timeout, packages, None)
   }
 }
 
@@ -103,17 +95,91 @@ async fn validate_workspace(
       fail("temporary workspace validation timed out during `moon check`")
   }
   let check_ms = @async.now() - check_started
-  let test_started = @async.now()
-  match run_moon_command(workspace, ["test"], timeout_ms, group_kill) {
-    CommandSuccess => ()
-    CommandFailure =>
-      fail(
-        "temporary workspace failed `moon test`; refusing to classify mutants",
-      )
+  let test_ms = baseline_test_run(workspace, timeout_ms, group_kill)
+  (check_ms, test_ms)
+}
+
+///|
+/// Determinism guard: the baseline test suite runs twice with the
+/// structured oracle. A mutant's verdict is only meaningful if the same
+/// suite behaves identically twice in a row — a property seeded from
+/// time, or any other flaky test, can otherwise flip KILLED/SURVIVED at
+/// random, so divergence aborts naming the unstable tests.
+async fn baseline_test_run(
+  workspace : String,
+  timeout_ms : Int,
+  group_kill : Bool,
+) -> Int64 {
+  let test_args = mutant_test_args(None)
+  let first_started = @async.now()
+  let first = run_moon_command(workspace, test_args, timeout_ms, group_kill)
+  let first_ms = @async.now() - first_started
+  match first {
     CommandTimeout =>
       fail("temporary workspace validation timed out during `moon test`")
+    _ => ()
   }
-  (check_ms, @async.now() - test_started)
+  let first_kills = last_test_failures(workspace)
+  let second_started = @async.now()
+  let second = run_moon_command(workspace, test_args, timeout_ms, group_kill)
+  let second_ms = @async.now() - second_started
+  match second {
+    CommandTimeout =>
+      fail("temporary workspace validation timed out during `moon test`")
+    _ => ()
+  }
+  let second_kills = last_test_failures(workspace)
+  let first_failed = first == CommandFailure
+  let second_failed = second == CommandFailure
+  if first_failed != second_failed {
+    abort_unstable_baseline(first_kills, second_kills)
+  }
+  if first_failed {
+    match (first_kills, second_kills) {
+      (Some(first_set), Some(second_set)) => {
+        let unstable = unstable_kills(first_set, second_set)
+        if unstable.length() > 0 {
+          abort_unstable_baseline(first_kills, second_kills)
+        }
+      }
+      _ => ()
+    }
+    fail("temporary workspace failed `moon test`; refusing to classify mutants")
+  }
+  if first_ms > second_ms {
+    first_ms
+  } else {
+    second_ms
+  }
+}
+
+///|
+/// Abort the run when the two baseline executions disagree. When the
+/// oracle produced failure records the unstable tests are named;
+/// without them only the divergence itself can be reported.
+fn abort_unstable_baseline(
+  first_kills : Array[Kill]?,
+  second_kills : Array[Kill]?,
+) -> Unit raise {
+  // A passing run reports no records at all, so treat a missing stream
+  // as an empty failure set — its counterpart still names the tests.
+  let first_set = match first_kills {
+    Some(kills) => kills
+    None => []
+  }
+  let second_set = match second_kills {
+    Some(kills) => kills
+    None => []
+  }
+  let unstable = unstable_kills(first_set, second_set)
+  let names = if unstable.is_empty() {
+    ""
+  } else {
+    "; unstable test(s): \{unstable.map(describe_kill).join(", ")}"
+  }
+  fail(
+    "baseline `moon test` outcomes differ between two runs\{names}; fix or reseed flaky tests (e.g. pass an explicit `seed~` to `quickcheck.check`) before mutation testing",
+  )
 }
 
 ///|
@@ -170,7 +236,7 @@ async fn run_one_mutant(
   reference : String,
   manifest : Ref[WorkspaceManifest],
   mutation : Mutation,
-  classify : async (String, Mutation) -> (Outcome, Array[String]?),
+  classify : async (String, Mutation) -> (Outcome, Array[String]?, Array[Kill]?),
 ) -> MutationResult {
   let target = path_join(workspace, mutation.path)
   let original_source = @fs.read_file(target).text() catch {
@@ -202,12 +268,12 @@ async fn run_one_mutant(
       _ => ()
     },
   )
-  let (outcome, packages) = classify(workspace, mutation)
+  let (outcome, packages, kills) = classify(workspace, mutation)
   let duration_ms = @async.now() - started
   sweep_workspace(workspace, reference, manifest.val) catch {
     _ => manifest.val = rebuild_workspace(workspace, reference)
   }
-  { mutation, outcome, duration_ms, reused: false, packages, }
+  { mutation, outcome, duration_ms, reused: false, packages, kills, }
 }
 
 ///|
@@ -224,7 +290,7 @@ async fn run_mutation_pool(
   mutations : Array[Mutation],
   jobs : Int,
   reuse : Array[MutationResult?],
-  classify : async (String, Mutation) -> (Outcome, Array[String]?),
+  classify : async (String, Mutation) -> (Outcome, Array[String]?, Array[Kill]?),
 ) -> Array[MutationResult] {
   let total = mutations.length()
   let slots : Array[MutationResult?] = Array::make(total, None)
@@ -265,7 +331,7 @@ async fn run_mutation_pool(
           slots[index] = Some(result)
           completed.val = completed.val + 1
           println(
-            "[\{completed.val}/\{total}] \{outcome_name(result.outcome)} \{describe_mutation(mutations[index])}",
+            "[\{completed.val}/\{total}] \{outcome_name(result.outcome)} \{describe_mutation(mutations[index])}\{describe_kills(result)}",
           )
         }
         // The workspace is worker-local scratch: the outer tmpdir teardown

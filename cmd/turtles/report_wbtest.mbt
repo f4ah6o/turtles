@@ -20,6 +20,7 @@ fn report_test_result(outcome : Outcome) -> MutationResult {
     duration_ms: 1L,
     reused: false,
     packages: None,
+    kills: None,
   }
 }
 
@@ -44,6 +45,7 @@ fn report_result_with(
     duration_ms: 1L,
     reused: false,
     packages: None,
+    kills: None,
   }
 }
 

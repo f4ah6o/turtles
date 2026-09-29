@@ -70,6 +70,7 @@ async fn iterate_reuse(
               duration_ms: 0L,
               reused: true,
               packages: None,
+              kills: None,
             })
             matched = matched + 1
           }

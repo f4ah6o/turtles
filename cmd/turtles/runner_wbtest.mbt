@@ -155,7 +155,7 @@ async test "mutation pool bounds concurrency and preserves discovery order" {
         @async.sleep(if first { 80 } else { 20 })
         in_flight.val = in_flight.val - 1
         let outcome = if first { Killed } else { Survived }
-        (outcome, None)
+        (outcome, None, None)
       },
     )
     inspect(results.length(), content="2")
@@ -209,7 +209,7 @@ async test "jobs=1 keeps mutant runs sequential" {
         }
         @async.sleep(20)
         in_flight.val = in_flight.val - 1
-        (Killed, None)
+        (Killed, None, None)
       },
     )
     inspect(max_in_flight.val, content="1")
