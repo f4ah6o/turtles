@@ -1,6 +1,6 @@
 # MoonBit-idiomatic mutation testing with deep QuickCheck (PBT) integration
 
-- Status: open (2026-09-29)
+- Status: P0/P1 implemented (2026-09-29); P2 tracked in [`../open/2026-09-29-pbt-survivor-analysis.md`](../open/2026-09-29-pbt-survivor-analysis.md)
 - Origin: user direction (2026-09-29), turtles baseline `76bfd78`
 - Affected area: `cmd/turtles/` (types, scanner, runner, report, config, main), `fixtures/`, `README.md`
 - References:
@@ -9,6 +9,44 @@
   - MoonBit skills index: <https://github.com/moonbitlang/skills/tree/master/skills>
   - `moonbitlang/quickcheck` (0.15.0): <https://github.com/moonbitlang/quickcheck>
   - QuickCheck tutorial part 1: <https://www.moonbitlang.com/pearls/quickcheck-tutorial-part-1>
+
+## Implementation record
+
+This file is kept as the design record. The P0/P1 scope and self-application
+(G7) landed in:
+
+- #18 — structured oracle (`--test-failure-json`, never `--update`/`-u`),
+  `killed_by` / `kills_by_kind` / `property_only_kills`, `attribution:
+  "unavailable"` fallback, baseline determinism guard, `fixtures/pbt`,
+  `--iterate` preserving `killed_by`.
+- #19 — typed `body` operator group, `#turtles.skip` and `// turtles: skip`,
+  `--operators`, `fixtures/body`.
+- #20 — counterexample → regression templates behind `--emit-regressions`.
+- #21 — per-mutant `visibility` and `score_public` / `score_private`.
+- #22 — core `@quickcheck` property tests for turtles itself.
+
+Deviations from the design below:
+
+- Regression templates are **opt-in** (`--emit-regressions`) and named
+  `regressions/<mutant-id>.mbt`. The counterexample, killing test and mutant
+  edit are recorded as comments inside a compilable `test` block; the user
+  writes the call and assertion, because counterexample text is not guaranteed
+  to parse as MoonBit.
+- `DocTest` detection: moon 0.1.20260920 reports doc tests with an empty
+  `test_name` (`.mbt.md` under its own filename, docstring blocks under the
+  source `.mbt` file), so the empty name — not only the `.mbt.md` suffix —
+  selects `DocTest`, checked before `Snapshot`. This resolves the doc-test
+  open question.
+- Visibility has a third `Test` bucket for mutants inside `test` blocks,
+  excluded from both split scores. MoonBit rejects `priv fn`, so private code
+  is exercised through default-visibility functions. For executable packages
+  such as `cmd/turtles` (no `pub` declarations) the public score is vacuous.
+- `body` stays opt-in (not a default group).
+- The README documents these features in "Kill attribution and determinism"
+  and "Skipping blocks" rather than a single "Property-based testing" section.
+- Self-run after #22 on the merged tree: 844 mutants, 67.39%
+  (560 KILLED / 271 SURVIVED / 13 UNVIABLE / 0 TIMEOUT), 83 property kills;
+  pre-rebase baseline was 68.85% on 696 mutants.
 
 ## Direction
 
@@ -277,21 +315,21 @@ New `fixtures/pbt/` module:
 
 ## Acceptance criteria
 
-- [ ] Mutant test runs pass `--test-failure-json` and never `--update`/`-u` (white-box test).
-- [ ] KILLED rows include `killed_by` with correct `kind` for property, snapshot,
+- [x] Mutant test runs pass `--test-failure-json` and never `--update`/`-u` (white-box test).
+- [x] KILLED rows include `killed_by` with correct `kind` for property, snapshot,
       doc test and assertion failures on `fixtures/pbt`.
-- [ ] Property kills record the shrunk counterexample string; unknown message formats degrade gracefully.
-- [ ] Summary reports per-kind kill counts and property-only kills.
-- [ ] Baseline determinism guard aborts with the unstable test names when outcomes differ.
-- [ ] `regressions/mut-XXXX.mbt` generated for property kills and linked from the report.
-- [ ] `body` operator group implements the return-type table; unsupported types are skipped, not UNVIABLE.
-- [ ] `#turtles.skip` (and the comment fallback) excludes a block from discovery.
-- [ ] Public/private split in the score.
-- [ ] Existing fixtures (`basic`, `isolation`, `empty`, ...) produce byte-identical
+- [x] Property kills record the shrunk counterexample string; unknown message formats degrade gracefully.
+- [x] Summary reports per-kind kill counts and property-only kills.
+- [x] Baseline determinism guard aborts with the unstable test names when outcomes differ.
+- [x] `regressions/<mutant-id>.mbt` generated for property kills (opt-in `--emit-regressions`) and listed in the report's `regressions` field.
+- [x] `body` operator group implements the return-type table; unsupported types are skipped, not UNVIABLE.
+- [x] `#turtles.skip` (and the comment fallback) excludes a block from discovery.
+- [x] Public/private split in the score.
+- [x] Existing fixtures (`basic`, `isolation`, `empty`, ...) produce byte-identical
       verdicts without new flags; JSON changes are additive only.
-- [ ] turtles gains property tests for the listed invariants; self-run documented.
-- [ ] README: "Property-based testing" section (determinism, attribution, regressions, skip marker).
-- [ ] P2 items (suggestions, differential witness, amplification) tracked as follow-up issues once P0/P1 land.
+- [x] turtles gains property tests for the listed invariants; self-run documented.
+- [x] README documents determinism, attribution, regressions, and skip marker ("Kill attribution and determinism", "Skipping blocks").
+- [x] P2 items (suggestions, differential witness, amplification) tracked in `../open/2026-09-29-pbt-survivor-analysis.md`.
 
 ## Verification plan
 
@@ -321,6 +359,13 @@ Checks: JSON `killed_by` kinds, counterexample strings, `regressions/` files,
 skip marker, public/private split, and unchanged verdicts on old fixtures.
 
 ## Open questions
+
+Resolved or moved: the doc-test shape is recorded above; the remaining
+questions (`body` as a default group, extended `moonbitlang/quickcheck` in
+suggestions, target keying) moved to
+`../open/2026-09-29-pbt-survivor-analysis.md`.
+
+Original questions:
 
 - Should `body` become a default group once UNVIABLE rate is measured on real
   modules (`moonbitlang/x`, `f4ah6o/duckdb.mbt`)?

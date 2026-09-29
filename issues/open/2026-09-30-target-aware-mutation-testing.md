@@ -256,6 +256,15 @@ moon test --target <TARGET>
 
 not to an unqualified `moon test`.
 
+## Interaction with PBT features
+
+Since this issue was written, #18–#21 added `killed_by` attribution, property
+counterexamples, `--emit-regressions` templates and visibility split scores.
+These are per-run results and must be keyed by the selected target like the
+verdicts: a prior report's `killed_by` is reused only when the target matches,
+and regression templates / counterexamples are recorded with the target that
+produced them.
+
 ## Fixture design
 
 Add a small multi-target fixture, for example `fixtures/targets`, with:
