@@ -10,10 +10,10 @@ The supported way to install `turtles` is `moon install`, which builds the nativ
 
 ### Stable — Mooncakes
 
-The registry package is the default install path; `@0.2.0` pins the current release:
+The registry package is the default install path; `@0.3.0` pins the current release:
 
 ```sh
-moon install f4ah6o/turtles/cmd/turtles@0.2.0
+moon install f4ah6o/turtles/cmd/turtles@0.3.0
 ```
 
 ### Development — GitHub
@@ -25,7 +25,7 @@ moon install https://github.com/f4ah6o/turtles.git cmd/turtles --branch main
 Pin a release once tags are published:
 
 ```sh
-moon install https://github.com/f4ah6o/turtles.git cmd/turtles --tag v0.2.0
+moon install https://github.com/f4ah6o/turtles.git cmd/turtles --tag v0.3.0
 ```
 
 ### From a local clone
@@ -37,7 +37,7 @@ moon install ./cmd/turtles
 ## First run in 30 seconds
 
 ```sh
-turtles --version          # turtles 0.2.0
+turtles --version          # turtles 0.3.0
 turtles --help
 
 cd path/to/your-moonbit-module
@@ -75,7 +75,7 @@ Note that `moon` itself already parallelizes a single build; `--jobs` paralleliz
 Install a pinned release and run turtles against your module:
 
 ```sh
-moon install f4ah6o/turtles/cmd/turtles@0.2.0
+moon install f4ah6o/turtles/cmd/turtles@0.3.0
 turtles --dir . --fail-under 80 --json turtles-report.json
 ```
 
@@ -128,7 +128,7 @@ Every run writes a schema-`2` report and per-survivor unified diffs to `<dir>/.t
 {
   "schema": 2,
   "module": "/abs/path",
-  "turtles_version": "0.2.0",
+  "turtles_version": "0.3.0",
   "moon_version": "moon 0.1.20260920 (914d7da 2026-09-20) ~/.moon/bin/moon",
   "baseline_duration_ms": "216",
   "baseline_check_ms": "70",
