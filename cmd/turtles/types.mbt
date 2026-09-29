@@ -138,6 +138,7 @@ struct MutationResult {
   duration_ms : Int64
   reused : Bool
   packages : Array[String]?
+  kills : Array[Kill]?
 }
 
 ///|
@@ -155,7 +156,17 @@ struct JsonMutation {
   duration_ms : Int64
   reused : Bool
   packages : Array[String]?
+  killed_by : Array[Kill]?
+  attribution : String?
 } derive(ToJson)
+
+///|
+struct JsonKillCounts {
+  property : Int
+  snapshot : Int
+  doc_test : Int
+  assertion : Int
+} derive(Debug, ToJson)
 
 ///|
 struct JsonSummary {
@@ -165,6 +176,8 @@ struct JsonSummary {
   unviable : Int
   reused : Int
   score : Double
+  kills_by_kind : JsonKillCounts
+  property_only_kills : Int
 } derive(ToJson)
 
 ///|

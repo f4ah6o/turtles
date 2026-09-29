@@ -128,6 +128,14 @@ Every run writes a schema-`2` report and per-survivor unified diffs to `<dir>/.t
 
 `--output-dir <path>` relocates the report directory; `--json` additionally writes a plain report anywhere for CI. `--iterate` loads the previous `<output-dir>/report.json` and reuses `KILLED`/`UNVIABLE` outcomes for mutants whose file content hash and identity tuple are unchanged (marked `"reused": true`); `SURVIVED`/`TIMEOUT` mutants always re-run. Reuse is refused wholesale when the schema, turtles version, or moon version differ. `--affected` is opt-in test selection: it parses `moon test --dry-run` to learn the package graph and runs `moon test -p` on just the mutated package plus packages whose test targets transitively link it, falling back to a module-wide run whenever resolution is uncertain. An empty mutation set still produces a schema-2 report with `mutants: []`; `--list` never runs tests.
 
+## Kill attribution and determinism
+
+Every test run turtles drives — baseline and mutants alike — goes through `moon test --test-failure-json`, which prints one JSON record per failing test. `turtles` never passes `--update`/`-u`, so a snapshot expectation can never be silently rewritten mid-run.
+
+For each `KILLED` mutant the report adds a `killed_by` array attributing the kill to concrete tests. Each entry carries `package`, `filename`, `index`, `test_name`, a `kind` (`"Property"`, `"Snapshot"`, `"DocTest"`, or `"Assertion"`), and for property kills the shrunk `counterexample` string. On moon 0.1.20260920 doc tests report an empty `test_name` — `.mbt.md` files under their own filename, docstring `mbt check` blocks under the source `.mbt` file — which is how `DocTest` is detected. If the structured stream is missing or unparseable (older moon, crashed test binary, abort before tests ran), the verdict still comes from the exit status and the row carries `"killed_by": []` with `"attribution": "unavailable"`. The summary gains `kills_by_kind` (per-kind kill counts) and `property_only_kills` — mutants only a QuickCheck property caught, the headline value of PBT.
+
+The baseline runs the test suite **twice** on the pristine copy, restoring the workspace snapshot in between so each run sees the state every mutant starts from. If the two runs disagree on which tests fail, the run aborts as a setup error naming the unstable tests — a flaky oracle would make every verdict meaningless. Keep QuickCheck's fixed default seed or pass an explicit `seed~`; never derive seeds from time in tests used as a mutation oracle.
+
 ## Configuration
 
 If `turtles.toml` exists in the target MoonBit module root, turtles reads mutation selection from it before scanning sources.

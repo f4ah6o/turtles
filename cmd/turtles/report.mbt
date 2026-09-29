@@ -26,7 +26,17 @@ fn mutation_score(killed : Int, survived : Int, timeout : Int) -> Double {
 }
 
 ///|
+/// Additive attribution fields: KILLED mutants carry the structured
+/// failure records that caught them. `attribution: "unavailable"` marks
+/// a kill where the oracle emitted nothing parseable (older moon,
+/// crashed test binary, abort before tests ran) — the verdict still
+/// stands on the exit status alone.
 fn json_mutation(result : MutationResult) -> JsonMutation {
+  let (killed_by, attribution) = match (result.outcome, result.kills) {
+    (Killed, Some(kills)) => (Some(kills), None)
+    (Killed, None) => (Some([]), Some("unavailable"))
+    _ => (None, None)
+  }
   {
     id: mutation_id(result.mutation),
     path: result.mutation.path,
@@ -41,7 +51,51 @@ fn json_mutation(result : MutationResult) -> JsonMutation {
     duration_ms: result.duration_ms,
     reused: result.reused,
     packages: result.packages,
+    killed_by,
+    attribution,
   }
+}
+
+///|
+/// Per-kind tallies over every recorded kill, plus the headline PBT
+/// metric: mutants whose entire kill attribution is property tests —
+/// mutants only QuickCheck could have caught.
+fn kill_counts(results : Array[MutationResult]) -> (JsonKillCounts, Int) {
+  let mut property = 0
+  let mut snapshot = 0
+  let mut doc_test = 0
+  let mut assertion = 0
+  let mut property_only = 0
+  for result in results {
+    guard result.outcome == Killed else { continue }
+    match result.kills {
+      Some(kills) => {
+        let mut saw_other = false
+        for kill in kills {
+          match kill.kind {
+            Property => property = property + 1
+            Snapshot => {
+              snapshot = snapshot + 1
+              saw_other = true
+            }
+            DocTest => {
+              doc_test = doc_test + 1
+              saw_other = true
+            }
+            Assertion => {
+              assertion = assertion + 1
+              saw_other = true
+            }
+          }
+        }
+        if kills.length() > 0 && !saw_other {
+          property_only = property_only + 1
+        }
+      }
+      None => ()
+    }
+  }
+  ({ property, snapshot, doc_test, assertion, }, property_only)
 }
 
 ///|
@@ -66,6 +120,7 @@ fn build_report(
     }
   }
   let counts = count_outcomes(results)
+  let (kills_by_kind, property_only_kills) = kill_counts(results)
   let skipped_files : Array[JsonSkippedFile] = []
   for entry in skipped {
     skipped_files.push({ path: entry.path, error: entry.error, })
@@ -87,6 +142,8 @@ fn build_report(
       unviable: counts.3,
       reused,
       score,
+      kills_by_kind,
+      property_only_kills,
     },
     skipped_files,
     files: Some(files),

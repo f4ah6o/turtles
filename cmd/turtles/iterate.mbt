@@ -5,7 +5,7 @@ struct PriorReport {
   turtles_version : String?
   moon_version : String?
   files : Map[String, String]
-  mutants : Map[String, (Mutation, Outcome)]
+  mutants : Map[String, (Mutation, Outcome, Array[Kill]?)]
 }
 
 ///|
@@ -58,13 +58,13 @@ async fn load_prior_report(path : String) -> PriorReport? {
       }
     _ => ()
   }
-  let mutants : Map[String, (Mutation, Outcome)] = Map([])
+  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?)] = Map([])
   match top.get("mutants") {
     Some(Array(entries)) =>
       for entry in entries {
         match parse_prior_mutant(entry) {
-          Some((mutation, outcome)) =>
-            mutants[mutation_identity(mutation)] = (mutation, outcome)
+          Some((mutation, outcome, kills)) =>
+            mutants[mutation_identity(mutation)] = (mutation, outcome, kills)
           None => ()
         }
       }
@@ -91,7 +91,7 @@ fn json_field_string_or_number(
 }
 
 ///|
-fn parse_prior_mutant(json : Json) -> (Mutation, Outcome)? {
+fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?)? {
   guard json is Object(fields) else { return None }
   guard fields.get("path") is Some(String(path)) else { return None }
   guard fields.get("offset") is Some(Number(start, ..)) else { return None }
@@ -119,6 +119,7 @@ fn parse_prior_mutant(json : Json) -> (Mutation, Outcome)? {
         replacement,
       },
       outcome,
+      kills_from_json(json),
     ),
   )
 }
@@ -136,7 +137,7 @@ fn prior_reusable_outcome(
   mutation : Mutation,
   current_files : Map[String, String],
   moon_version : String?,
-) -> Outcome? {
+) -> (Outcome, Array[Kill]?)? {
   if prior.schema != 2 {
     return None
   }
@@ -150,11 +151,16 @@ fn prior_reusable_outcome(
     current_files.get(mutation.path) == Some(recorded_hash) else {
     return None
   }
-  guard prior.mutants.get(mutation_identity(mutation)) is Some((_, outcome)) else {
+  guard prior.mutants.get(mutation_identity(mutation))
+    is Some((_, outcome, kills)) else {
     return None
   }
   match outcome {
-    Killed | Unviable => Some(outcome)
+    // The kill's attribution travels with the verdict: a reused row
+    // keeps the prior report's killed_by rather than degrading to
+    // "unavailable".
+    Killed => Some((outcome, kills))
+    Unviable => Some((outcome, None))
     Survived | Timeout => None
   }
 }

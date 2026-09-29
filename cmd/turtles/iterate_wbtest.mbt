@@ -25,10 +25,11 @@ fn mk_prior(
   moon : String?,
   file_hash : String,
   outcome : Outcome,
+  kills : Array[Kill]?,
 ) -> PriorReport {
   let m = mk_mutation("a.mbt", 0, 1, "+", "-")
-  let mutants : Map[String, (Mutation, Outcome)] = Map([])
-  mutants[mutation_identity(m)] = (m, outcome)
+  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?)] = Map([])
+  mutants[mutation_identity(m)] = (m, outcome, kills)
   let files : Map[String, String] = Map([])
   files["a.mbt"] = file_hash
   { schema, turtles_version: turtles, moon_version: moon, files, mutants, }
@@ -45,9 +46,10 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     Some("moon x"),
     "hash-a",
     Killed,
+    None,
   )
   match prior_reusable_outcome(prior, m, current, Some("moon x")) {
-    Some(Killed) => ()
+    Some((Killed, None)) => ()
     _ => fail("expected reused KILLED")
   }
   // Survived and Timeout never reuse.
@@ -57,6 +59,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     Some("moon x"),
     "hash-a",
     Survived,
+    None,
   )
   assert_eq(
     prior_reusable_outcome(prior_survived, m, current, Some("moon x")) is None,
@@ -68,13 +71,21 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     Some("moon x"),
     "hash-a",
     Timeout,
+    None,
   )
   assert_eq(
     prior_reusable_outcome(prior_timeout, m, current, Some("moon x")) is None,
     true,
   )
   // Schema 1 reports never reuse.
-  let old = mk_prior(1, Some(turtles_version), Some("moon x"), "hash-a", Killed)
+  let old = mk_prior(
+    1,
+    Some(turtles_version),
+    Some("moon x"),
+    "hash-a",
+    Killed,
+    None,
+  )
   assert_eq(
     prior_reusable_outcome(old, m, current, Some("moon x")) is None,
     true,
@@ -86,6 +97,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     Some("moon x"),
     "hash-a",
     Killed,
+    None,
   )
   assert_eq(
     prior_reusable_outcome(other_turtles, m, current, Some("moon x")) is None,
@@ -97,6 +109,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     Some("moon y"),
     "hash-a",
     Killed,
+    None,
   )
   assert_eq(
     prior_reusable_outcome(other_moon, m, current, Some("moon x")) is None,
@@ -115,6 +128,7 @@ test "iterate refuses reuse when file content changed" {
     Some("moon x"),
     "old-hash",
     Killed,
+    None,
   )
   assert_eq(
     prior_reusable_outcome(prior, m, current, Some("moon x")) is None,
@@ -143,6 +157,57 @@ test "identity is content-anchored, not line-anchored" {
   // Same span, different replacement -> different identity.
   let m4 = mk_mutation("a.mbt", 10, 11, "+", "*")
   assert_true(mutation_identity(m1) != mutation_identity(m4))
+}
+
+///|
+async test "iterate round-trips killed_by attribution from a prior report" {
+  let temp = @fs.tmpdir(prefix="turtles-iterate")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let kills_json = [
+        {
+          pkg: "probe/p",
+          filename: "lib_test.mbt",
+          index: 0,
+          test_name: "prop idempotent",
+          kind: Property,
+          counterexample: Some("0"),
+        },
+      ]
+      .to_json()
+      .stringify()
+    let mutant_json = "{\"path\":\"a.mbt\",\"offset\":0,\"end\":1,\"group\":\"arithmetic\",\"original\":\"+\",\"replacement\":\"-\",\"outcome\":\"KILLED\",\"line\":1,\"column\":1,\"killed_by\":\{kills_json}}"
+    let report = "{\"schema\":2,\"turtles_version\":\"\{turtles_version}\",\"moon_version\":\"moon x\",\"files\":{\"a.mbt\":\"hash-a\"},\"mutants\":[\{mutant_json}]}"
+    @fs.write_file(path_join(temp, "report.json"), report)
+    guard load_prior_report(path_join(temp, "report.json")) is Some(prior) else {
+      fail("expected prior report to load")
+    }
+    let current : Map[String, String] = Map([])
+    current["a.mbt"] = "hash-a"
+    let m = mk_mutation("a.mbt", 0, 1, "+", "-")
+    match prior_reusable_outcome(prior, m, current, Some("moon x")) {
+      Some((Killed, Some(kills))) => {
+        assert_eq(kills.length(), 1)
+        inspect(kills[0].pkg, content="probe/p")
+        inspect(kills[0].filename, content="lib_test.mbt")
+        inspect(kills[0].test_name, content="prop idempotent")
+        debug_inspect(kills[0].kind, content="Property")
+        debug_inspect(kills[0].counterexample, content="Some(\"0\")")
+      }
+      _ => fail("expected reused KILLED carrying its killed_by")
+    }
+    // A prior row without killed_by still degrades to "unavailable".
+    let bare_json = "{\"path\":\"a.mbt\",\"offset\":0,\"end\":1,\"group\":\"arithmetic\",\"original\":\"+\",\"replacement\":\"-\",\"outcome\":\"KILLED\",\"line\":1,\"column\":1}"
+    let bare_report = "{\"schema\":2,\"turtles_version\":\"\{turtles_version}\",\"moon_version\":\"moon x\",\"files\":{\"a.mbt\":\"hash-a\"},\"mutants\":[\{bare_json}]}"
+    @fs.write_file(path_join(temp, "report.json"), bare_report)
+    guard load_prior_report(path_join(temp, "report.json")) is Some(bare) else {
+      fail("expected prior report to load")
+    }
+    assert_true(
+      prior_reusable_outcome(bare, m, current, Some("moon x"))
+      is Some((Killed, None)),
+    )
+  })
 }
 
 ///|
