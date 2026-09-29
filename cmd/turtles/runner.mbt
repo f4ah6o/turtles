@@ -81,6 +81,7 @@ async fn classify_mutant(
 /// mutant that hangs is still bounded by `timeout_ms`.
 async fn validate_workspace(
   workspace : String,
+  reference : String,
   timeout_ms : Int,
   group_kill : Bool,
 ) -> (Int64, Int64) {
@@ -95,22 +96,26 @@ async fn validate_workspace(
       fail("temporary workspace validation timed out during `moon check`")
   }
   let check_ms = @async.now() - check_started
-  let test_ms = baseline_test_run(workspace, timeout_ms, group_kill)
+  let test_ms = baseline_test_run(workspace, reference, timeout_ms, group_kill)
   (check_ms, test_ms)
 }
 
 ///|
 /// Determinism guard: the baseline test suite runs twice with the
-/// structured oracle. A mutant's verdict is only meaningful if the same
-/// suite behaves identically twice in a row — a property seeded from
-/// time, or any other flaky test, can otherwise flip KILLED/SURVIVED at
-/// random, so divergence aborts naming the unstable tests.
+/// structured oracle, sweeping the workspace back to its pristine
+/// snapshot in between — the same state every mutant workspace starts
+/// from. Divergence therefore reports genuine nondeterminism (a
+/// property seeded from time, or any other flaky test that can flip
+/// KILLED/SURVIVED at random), not state the first run left behind;
+/// it aborts naming the unstable tests.
 async fn baseline_test_run(
   workspace : String,
+  reference : String,
   timeout_ms : Int,
   group_kill : Bool,
 ) -> Int64 {
   let test_args = mutant_test_args(None)
+  let manifest = snapshot_workspace(workspace)
   let first_started = @async.now()
   let first = run_moon_command(workspace, test_args, timeout_ms, group_kill)
   let first_ms = @async.now() - first_started
@@ -120,6 +125,9 @@ async fn baseline_test_run(
     _ => ()
   }
   let first_kills = last_test_failures(workspace)
+  sweep_workspace(workspace, reference, manifest) catch {
+    _ => ()
+  }
   let second_started = @async.now()
   let second = run_moon_command(workspace, test_args, timeout_ms, group_kill)
   let second_ms = @async.now() - second_started
@@ -386,6 +394,7 @@ async fn run_mutations(
       Some(0)
     let (baseline_check_ms, baseline_test_ms) = validate_workspace(
       baseline,
+      reference,
       timeout_ms * 10,
       group_kill,
     )
