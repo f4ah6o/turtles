@@ -6,22 +6,32 @@ Mutation testing for MoonBit projects — the `cargo-mutants` idea, implemented 
 
 ## Install
 
-The supported way to install `turtles` is `moon install`, which builds the native executable from source (requires the MoonBit toolchain):
+The supported way to install `turtles` is `moon install`, which builds the native executable from source (requires the MoonBit toolchain). It puts a `turtles` binary in `~/.moon/bin` (the same directory `moon` itself lives in, so it is usually already on `PATH`). Override the destination with `--bin <DIR>`.
+
+### Stable — Mooncakes
+
+The registry package is the default install path; `@0.2.0` pins the current release:
 
 ```sh
-# From the GitHub repository:
-moon install https://github.com/f4ah6o/turtles.git cmd/turtles --branch main
-
-# Or, from a local clone of this repository:
-moon install ./cmd/turtles
+moon install f4ah6o/turtles/cmd/turtles@0.2.0
 ```
 
-Both put a `turtles` binary in `~/.moon/bin` (the same directory `moon` itself lives in, so it is usually already on `PATH`). Override the destination with `--bin <DIR>`.
+### Development — GitHub
+
+```sh
+moon install https://github.com/f4ah6o/turtles.git cmd/turtles --branch main
+```
 
 Pin a release once tags are published:
 
 ```sh
 moon install https://github.com/f4ah6o/turtles.git cmd/turtles --tag v0.2.0
+```
+
+### From a local clone
+
+```sh
+moon install ./cmd/turtles
 ```
 
 ## First run in 30 seconds
@@ -60,6 +70,13 @@ turtles --dir . --jobs 4
 Note that `moon` itself already parallelizes a single build; `--jobs` parallelizes *across mutants*, so values above ~2× your CPU count only add contention.
 
 ## CI usage
+
+Install a pinned release and run turtles against your module:
+
+```sh
+moon install f4ah6o/turtles/cmd/turtles@0.2.0
+turtles --dir . --fail-under 80 --json turtles-report.json
+```
 
 By default turtles exits `1` when any mutant survives or times out — the right behavior once a codebase is clean, but awkward when introducing mutation testing to an existing suite. Use `--fail-under` to ratchet the bar gradually:
 
@@ -195,4 +212,4 @@ The real fixture E2E also validates schema-2 JSON report generation, determinist
 
 ## Planned follow-ups
 
-JUnit reports, richer survivor context, and smarter default test selection are still open. mooncakes.io publishing and prebuilt release binaries are deliberately out of scope until the registry flow is exercised; `moon install` from the git URL is the verified install path today.
+JUnit reports, richer survivor context, and smarter default test selection are still open. Prebuilt release binaries remain out of scope — turtles needs the MoonBit toolchain at runtime anyway.
