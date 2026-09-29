@@ -1,6 +1,6 @@
 # Publish turtles to Mooncakes as the stable CLI distribution channel
 
-- Status: open (2026-09-30) — Phase 1 (pre-publish readiness) done, awaiting first publish
+- Status: implemented (2026-09-29) — `f4ah6o/turtles@0.2.0` published to Mooncakes and verified
 - Origin: distribution decision after reviewing current CLI/package layout
 - Affected area: `moon.mod`, `cmd/turtles/moon.pkg`, `README.md`, release/publish workflow
 - Primary user-facing command: `turtles`
@@ -190,17 +190,17 @@ Then execute turtles against a small fixture/module and confirm it can invoke `m
 
 ## Acceptance criteria
 
-- [ ] `f4ah6o/turtles` is published successfully to Mooncakes at a version that matches the repository release metadata.
-- [ ] The published module exposes/installably builds the `cmd/turtles` executable.
-- [ ] A clean install of the published version produces a working `turtles` command.
-- [ ] `turtles --version` reports the published version.
-- [ ] A clean smoke mutation-test run succeeds against a known fixture/module.
-- [ ] README documents Mooncakes as the stable installation path.
-- [ ] README keeps GitHub `main` installation as the development path.
-- [ ] CI documentation pins an explicit Mooncakes release version.
-- [ ] README no longer says Mooncakes publishing is out of scope.
-- [ ] No unnecessary public library API is introduced solely for publication.
-- [ ] Existing repository tests and fixture E2E remain green.
+- [x] `f4ah6o/turtles` is published successfully to Mooncakes at a version that matches the repository release metadata. (`f4ah6o/turtles@0.2.0`, `moon publish` → "Server status: 200 OK")
+- [x] The published module exposes/installably builds the `cmd/turtles` executable. (`moon install f4ah6o/turtles/cmd/turtles@0.2.0` builds and installs the binary)
+- [x] A clean install of the published version produces a working `turtles` command.
+- [x] `turtles --version` reports the published version. (`turtles 0.2.0`)
+- [x] A clean smoke mutation-test run succeeds against a known fixture/module. (6/6 KILLED, score 100, exit 0)
+- [x] README documents Mooncakes as the stable installation path.
+- [x] README keeps GitHub `main` installation as the development path.
+- [x] CI documentation pins an explicit Mooncakes release version. (README CI example + a CI step pin `@0.2.0`)
+- [x] README no longer says Mooncakes publishing is out of scope.
+- [x] No unnecessary public library API is introduced solely for publication.
+- [x] Existing repository tests and fixture E2E remain green.
 
 ## Progress (2026-09-29, Phase 1 — pre-publish readiness)
 
@@ -213,14 +213,18 @@ Verified on `moon 0.1.20260920`:
 - **CI (P2-lite)**: added a `moon.mod` version ⇔ `turtles_version` consistency assertion and a `moon package --list` step to `.github/workflows/ci.yml`.
 - **README**: Install restructured into Stable (Mooncakes) / Development (GitHub) / local-clone. The registry command is documented as the target UX but clearly marked *pending first publish*; the git-URL install remains the verified path. The "out of scope" claim now reads "planned — pending first publish".
 
-Remaining (Phase 2 — needs registry credentials + a publish decision):
+### Phase 2 — publish + post-publish verification
 
-- Decide first publish version (0.2.0 as-is vs a bump) — `moon publish` is irreversible.
-- `moon login` + actual `moon publish` of the selected version.
-- Post-publish clean install: `moon install f4ah6o/turtles/cmd/turtles@<version>` from a clean environment, verify `turtles --version`/`--help`, smoke run.
-- Flip the README Stable section from "pending first publish" to the live pinned command; CI usage example pinning the published version.
-- Git tag `v<version>` at the published commit (enables the `--tag` install path documented in README).
-- Optional P2 follow-ups after manual flow is proven: automated version-consistency check beyond CI, tag/release automation, publish automation, post-publish install smoke in CI.
+- **Publish**: `f4ah6o/turtles@0.2.0` published to Mooncakes from this branch's HEAD (`d149b81`) — `moon publish` → "Server status: 200 OK".
+- **Toolchain quirk**: `moon publish --dry-run` *with* credentials returns server "202 Accepted, Dry run completed successfully" but `moon` still exits `255`; without credentials it exits `255` at `please login first`. Treat `moon package --list` as the credential-free validation and read the server status line, not the exit code, for dry runs.
+- **Registry clean-install smoke** (clean location): `moon install f4ah6o/turtles/cmd/turtles@0.2.0 --bin <tmp>` → `Success: Installed turtles`; `turtles --version` → `turtles 0.2.0`; `turtles --help` ok; `turtles --dir <copy of fixtures/basic> --timeout 30` → 6/6 KILLED, score 100, exit 0. Confirmed from a second clean environment as well.
+- **README**: Stable section is now the live `moon install f4ah6o/turtles/cmd/turtles@0.2.0` command; GitHub stays the development path; added a CI usage example pinned to `@0.2.0` (`turtles --dir . --fail-under 80 --json turtles-report.json`).
+- **CI**: added a "Smoke-test the published Mooncakes release" step — `moon install f4ah6o/turtles/cmd/turtles@0.2.0 --bin <tmp>` then asserts `turtles --version` prints `turtles 0.2.0`.
+
+Remaining follow-ups (not part of this milestone):
+
+- Git tag `v0.2.0` at the published commit (enables the `--tag` install path documented in README).
+- Optional release automation after the manual flow repeats cleanly: tag/release creation, publish automation, post-publish install smoke in release CI.
 
 ## Non-goals
 

@@ -124,6 +124,11 @@ jobs:
           "$bin/turtles" --version
           "$bin/turtles" --help
           "$bin/turtles" --dir fixtures/basic --list
+      - name: Smoke-test the published Mooncakes release
+        run: |
+          bin="$RUNNER_TEMP/turtles-mooncakes-bin"
+          moon install f4ah6o/turtles/cmd/turtles@0.2.0 --bin "$bin"
+          test "$("$bin/turtles" --version)" = "turtles 0.2.0"
       - name: Emit JSON report for empty candidate sets
         run: |
           report="$RUNNER_TEMP/turtles-empty-report.json"

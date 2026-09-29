@@ -8,17 +8,15 @@ Mutation testing for MoonBit projects — the `cargo-mutants` idea, implemented 
 
 The supported way to install `turtles` is `moon install`, which builds the native executable from source (requires the MoonBit toolchain). It puts a `turtles` binary in `~/.moon/bin` (the same directory `moon` itself lives in, so it is usually already on `PATH`). Override the destination with `--bin <DIR>`.
 
-### Stable — Mooncakes *(pending first publish)*
+### Stable — Mooncakes
 
-Once `f4ah6o/turtles` is published to Mooncakes, the registry install becomes the default path:
+The registry package is the default install path; `@0.2.0` pins the current release:
 
 ```sh
-moon install f4ah6o/turtles/cmd/turtles@<version>
+moon install f4ah6o/turtles/cmd/turtles@0.2.0
 ```
 
-*This command is not live yet — the first publish is tracked in `issues/open/2026-09-30-mooncakes-cli-distribution.md`.*
-
-### Development — GitHub *(verified path today)*
+### Development — GitHub
 
 ```sh
 moon install https://github.com/f4ah6o/turtles.git cmd/turtles --branch main
@@ -72,6 +70,13 @@ turtles --dir . --jobs 4
 Note that `moon` itself already parallelizes a single build; `--jobs` parallelizes *across mutants*, so values above ~2× your CPU count only add contention.
 
 ## CI usage
+
+Install a pinned release and run turtles against your module:
+
+```sh
+moon install f4ah6o/turtles/cmd/turtles@0.2.0
+turtles --dir . --fail-under 80 --json turtles-report.json
+```
 
 By default turtles exits `1` when any mutant survives or times out — the right behavior once a codebase is clean, but awkward when introducing mutation testing to an existing suite. Use `--fail-under` to ratchet the bar gradually:
 
@@ -199,4 +204,4 @@ The real fixture E2E also validates schema-2 JSON report generation, determinist
 
 ## Planned follow-ups
 
-JUnit reports, richer survivor context, and smarter default test selection are still open. Mooncakes publishing is planned — pending the first publish tracked in `issues/open/2026-09-30-mooncakes-cli-distribution.md`; prebuilt release binaries remain out of scope. `moon install` from the git URL is the verified install path today.
+JUnit reports, richer survivor context, and smarter default test selection are still open. Prebuilt release binaries remain out of scope — turtles needs the MoonBit toolchain at runtime anyway.

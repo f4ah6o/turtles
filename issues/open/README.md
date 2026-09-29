@@ -5,7 +5,6 @@ This directory contains review findings that should remain actionable even if th
 Open tasks:
 
 - [Target-aware mutation testing for multi-backend MoonBit modules](2026-09-30-target-aware-mutation-testing.md)
-- [Publish turtles to Mooncakes as the stable CLI distribution channel](2026-09-30-mooncakes-cli-distribution.md)
 
 Completed task files live in [`../done/`](../done/).
 
