@@ -5,6 +5,7 @@ This directory contains review findings that should remain actionable even if th
 Open tasks:
 
 - [Target-aware mutation testing for multi-backend MoonBit modules](2026-09-30-target-aware-mutation-testing.md)
+- [MoonBit-idiomatic mutation testing with deep QuickCheck (PBT) integration](2026-09-29-moonbit-idioms-and-pbt-integration.md)
 
 Completed task files live in [`../done/`](../done/).
 
