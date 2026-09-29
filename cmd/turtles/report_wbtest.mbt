@@ -9,6 +9,7 @@ fn report_test_mutation(path : String) -> Mutation {
     group: Comparison,
     original: "a",
     replacement: "b",
+    visibility: Public,
   }
 }
 
@@ -40,6 +41,7 @@ fn report_result_with(
       group: mutation.group,
       original: mutation.original,
       replacement,
+      visibility: mutation.visibility,
     },
     outcome,
     duration_ms: 1L,
@@ -47,6 +49,16 @@ fn report_result_with(
     packages: None,
     kills: None,
   }
+}
+
+///|
+fn report_result_with_visibility(
+  replacement : String,
+  outcome : Outcome,
+  visibility : MutantVisibility,
+) -> MutationResult {
+  let result = report_result_with(replacement, outcome)
+  { ..result, mutation: { ..result.mutation, visibility, }, }
 }
 
 ///|
@@ -72,6 +84,34 @@ test "mutation_score divides killed over viable" {
   inspect(mutation_score(3, 1, 0), content="75")
   inspect(mutation_score(0, 2, 0), content="0")
   inspect(mutation_score(1, 0, 1), content="50")
+}
+
+///|
+test "visibility_summary splits outcomes by bucket" {
+  let results = [
+    report_result_with_visibility("c", Killed, Public),
+    report_result_with_visibility("d", Survived, Public),
+    report_result_with_visibility("e", Unviable, Public),
+    report_result_with_visibility("f", Survived, Private),
+    report_result_with_visibility("g", Timeout, Private),
+    report_result_with_visibility("h", Killed, Test),
+  ]
+  let public = visibility_summary(results, Public)
+  inspect(public.mutants, content="3")
+  inspect(public.killed, content="1")
+  inspect(public.survived, content="1")
+  inspect(public.unviable, content="1")
+  // Unviable is excluded from the score: 1 killed of 2 viable.
+  inspect(public.score, content="50")
+  let private = visibility_summary(results, Private)
+  inspect(private.mutants, content="2")
+  inspect(private.killed, content="0")
+  inspect(private.score, content="0")
+  // Test-block mutants are their own bucket: they never count toward
+  // the public or private split.
+  let test_bucket = visibility_summary(results, Test)
+  inspect(test_bucket.mutants, content="1")
+  inspect(test_bucket.killed, content="1")
 }
 
 ///|
@@ -117,6 +157,9 @@ async test "write_json_report emits schema-2 JSON" {
     assert_true(content.contains("\"replacement\": \"b\""))
     assert_true(content.contains("\"id\": \"m-"))
     assert_true(content.contains("\"offset\": 0"))
+    assert_true(content.contains("\"visibility\": \"public\""))
+    assert_true(content.contains("\"score_public\""))
+    assert_true(content.contains("\"score_private\""))
     assert_true(content.contains("\"files\": {"))
     // Rewriting to an existing directory must still succeed.
     write_json_report(path, report)

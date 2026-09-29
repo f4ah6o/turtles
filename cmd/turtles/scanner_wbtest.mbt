@@ -314,6 +314,7 @@ test "mutation identity is explicitly deduplicated" {
     skipped_starts: Map([]),
     skipped_blocks: None,
     trait_methods: Map([]),
+    current_visibility: Private,
     mutations: [],
   }
   let plus = operator_specs()[8]
@@ -353,6 +354,7 @@ test "mutation identity compares every field" {
     group: Comparison,
     original: "x",
     replacement: "y",
+    visibility: Private,
   }
   assert_true(same_mutation_identity(base, base))
   for
@@ -399,6 +401,7 @@ test "apply_mutation validates offsets and source text" {
     group: Arithmetic,
     original: "1",
     replacement: "2",
+    visibility: Private,
   }
   inspect(apply_mutation(source, base), content="fn f() -> Int { 2 }")
   for
@@ -429,6 +432,7 @@ test "describe_mutation renders path, position, and replacement" {
     group: Comparison,
     original: "+",
     replacement: "-",
+    visibility: Private,
   }
   inspect(describe_mutation(mutation), content="a/b.mbt:3:7: + -> -")
 }
@@ -616,6 +620,47 @@ test "loose comments are not skip markers" {
 test "body mutants carry a distinct group for fingerprints" {
   inspect(operator_group_name(Body), content="body")
   inspect(operator_group_from_string("body") == Body, content="true")
+}
+
+///|
+test "mutants are tagged with the enclosing declaration's visibility" {
+  let source =
+    #|pub fn pub_fn(a : Int) -> Int { a + 1 }
+    #|fn default_fn(a : Int) -> Int { a + 1 }
+    #|priv fn priv_fn(a : Int) -> Int { a + 1 }
+    #|trait S { m(Self) -> Int }
+    #|pub impl S for Int with m(self) { self + 1 }
+    #|trait T { n(Self) -> Int }
+    #|impl T for Int with n(self) { self + 1 }
+    #|test "inside" { ignore(1 + 1) }
+    #|let top_let = 1 + 1
+    #|pub let pub_let = 2 + 3
+  let mutations = scan_source("v.mbt", source, default_project_config())
+  inspect(mutations.length(), content="8")
+  for mutation in mutations {
+    match mutation.line {
+      // pub fn, pub impl, and pub let are public; impl methods use the
+      // impl's own visibility marker.
+      1 | 5 | 10 => debug_inspect(mutation.visibility, content="Public")
+      // test blocks carry no visibility: they are their own bucket.
+      8 => debug_inspect(mutation.visibility, content="Test")
+      // `fn`, `priv fn`, plain `impl`, and `let` are all private.
+      _ => debug_inspect(mutation.visibility, content="Private")
+    }
+  }
+}
+
+///|
+test "mutants inside skipped blocks keep no stale visibility" {
+  let source =
+    #|pub fn public_fn(a : Int) -> Int { a + 1 }
+    #|#turtles.skip
+    #|fn skipped_fn(a : Int) -> Int { a + 1 }
+    #|fn private_fn(a : Int) -> Int { a + 1 }
+  let mutations = scan_source("v.mbt", source, default_project_config())
+  inspect(mutations.length(), content="2")
+  debug_inspect(mutations[0].visibility, content="Public")
+  debug_inspect(mutations[1].visibility, content="Private")
 }
 
 ///|

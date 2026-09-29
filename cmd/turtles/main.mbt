@@ -125,7 +125,9 @@ async fn execute_with_config(config : Config) -> Int {
   }
   if config.list {
     for mutation in mutations {
-      println(describe_mutation(mutation))
+      println(
+        "\{describe_mutation(mutation)} [\{visibility_name(mutation.visibility)}]",
+      )
     }
     for block in skipped_blocks {
       println("  \{block.path}:\{block.line} (skipped)")
@@ -166,6 +168,30 @@ async fn execute_with_config(config : Config) -> Int {
     println("  reused:    \{reused}")
   }
   println("  score:     \{score}%")
+  let public_split = visibility_summary(results, Public)
+  if public_split.mutants > 0 {
+    let public_viable = public_split.killed +
+      public_split.survived +
+      public_split.timeout
+    println(
+      "  public:    \{public_split.score}% (\{public_split.killed}/\{public_viable} viable killed, \{public_split.mutants} mutants)",
+    )
+  }
+  let private_split = visibility_summary(results, Private)
+  if private_split.mutants > 0 {
+    let private_viable = private_split.killed +
+      private_split.survived +
+      private_split.timeout
+    println(
+      "  private:   \{private_split.score}% (\{private_split.killed}/\{private_viable} viable killed, \{private_split.mutants} mutants)",
+    )
+  }
+  let test_split = visibility_summary(results, Test)
+  if test_split.mutants > 0 {
+    println(
+      "  test:      \{test_split.mutants} mutant(s) in test blocks (outside the score split)",
+    )
+  }
   match config.fail_under {
     Some(threshold) =>
       if score >= threshold {
