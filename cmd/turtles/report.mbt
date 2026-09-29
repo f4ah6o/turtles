@@ -110,6 +110,7 @@ fn build_report(
   skipped : Array[SkippedFile],
   files : Map[String, String],
   score : Double,
+  regressions? : Array[String] = [],
 ) -> JsonReport {
   let mutants : Array[JsonMutation] = []
   let mut reused = 0
@@ -147,6 +148,7 @@ fn build_report(
     },
     skipped_files,
     files: Some(files),
+    regressions,
   }
 }
 
@@ -164,6 +166,7 @@ async fn write_output_dir(
   results : Array[MutationResult],
   report : JsonReport,
   default_dir : Bool,
+  emit_regressions? : Bool = false,
 ) -> Unit {
   let survivors_dir = path_join(dir, "survivors")
   @fs.mkdir(survivors_dir, recursive=true, allow_exist=true)
@@ -192,6 +195,9 @@ async fn write_output_dir(
         _ => ()
       }
     }
+  }
+  if emit_regressions {
+    write_regression_templates(dir, results)
   }
   let output = @json.to_json(report).stringify(indent=2) + "\n"
   @fs.write_file(path_join(dir, "report.json"), output)

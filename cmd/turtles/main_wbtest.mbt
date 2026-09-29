@@ -45,6 +45,7 @@ async test "execute_with_config lists mutations or runs the pipeline" {
       output_dir: Some(path_join(temp, "out")),
       affected: false,
       operators: None,
+      emit_regressions: false,
     }
     let listed = execute_with_config({ ..base, list: true, })
     inspect(listed, content="0")

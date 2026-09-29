@@ -56,6 +56,7 @@ turtles --dir . --timeout 120      # per-command timeout in seconds (default 60)
 turtles --dir . --json report.json # machine-readable report (schema 2)
 turtles --dir . --iterate          # reuse KILLED/UNVIABLE outcomes from the last run
 turtles --dir . --affected         # run only tests that can observe each mutant
+turtles --dir . --emit-regressions # write regression-test templates for property kills
 turtles --dir . --timeout-multiplier 3   # per-phase timeout = 3x the measured baseline (min 10s)
 ```
 
@@ -151,6 +152,8 @@ Every run writes a schema-`2` report and per-survivor unified diffs to `<dir>/.t
 Every test run turtles drives — baseline and mutants alike — goes through `moon test --test-failure-json`, which prints one JSON record per failing test. `turtles` never passes `--update`/`-u`, so a snapshot expectation can never be silently rewritten mid-run.
 
 For each `KILLED` mutant the report adds a `killed_by` array attributing the kill to concrete tests. Each entry carries `package`, `filename`, `index`, `test_name`, a `kind` (`"Property"`, `"Snapshot"`, `"DocTest"`, or `"Assertion"`), and for property kills the shrunk `counterexample` string. On moon 0.1.20260920 doc tests report an empty `test_name` — `.mbt.md` files under their own filename, docstring `mbt check` blocks under the source `.mbt` file — which is how `DocTest` is detected. If the structured stream is missing or unparseable (older moon, crashed test binary, abort before tests ran), the verdict still comes from the exit status and the row carries `"killed_by": []` with `"attribution": "unavailable"`. The summary gains `kills_by_kind` (per-kind kill counts) and `property_only_kills` — mutants only a QuickCheck property caught, the headline value of PBT.
+
+With `--emit-regressions`, every mutant killed by a property with a shrunk counterexample also gets a `regressions/<mutant-id>.mbt` template in the output directory: a paste-ready black-box `test` block recording the counterexample, the killing test's location, and the mutant's edit, ready to fill in with a call to the function under test. The report's additive `regressions` field lists the emitted paths. The flag only writes into the output directory — the module's own test files are never touched — and stale templates are swept on each opt-in run.
 
 The baseline runs the test suite **twice** on the pristine copy, restoring the workspace snapshot in between so each run sees the state every mutant starts from. If the two runs disagree on which tests fail, the run aborts as a setup error naming the unstable tests — a flaky oracle would make every verdict meaningless. Keep QuickCheck's fixed default seed or pass an explicit `seed~`; never derive seeds from time in tests used as a mutation oracle.
 
