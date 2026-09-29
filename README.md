@@ -6,22 +6,34 @@ Mutation testing for MoonBit projects — the `cargo-mutants` idea, implemented 
 
 ## Install
 
-The supported way to install `turtles` is `moon install`, which builds the native executable from source (requires the MoonBit toolchain):
+The supported way to install `turtles` is `moon install`, which builds the native executable from source (requires the MoonBit toolchain). It puts a `turtles` binary in `~/.moon/bin` (the same directory `moon` itself lives in, so it is usually already on `PATH`). Override the destination with `--bin <DIR>`.
+
+### Stable — Mooncakes *(pending first publish)*
+
+Once `f4ah6o/turtles` is published to Mooncakes, the registry install becomes the default path:
 
 ```sh
-# From the GitHub repository:
-moon install https://github.com/f4ah6o/turtles.git cmd/turtles --branch main
-
-# Or, from a local clone of this repository:
-moon install ./cmd/turtles
+moon install f4ah6o/turtles/cmd/turtles@<version>
 ```
 
-Both put a `turtles` binary in `~/.moon/bin` (the same directory `moon` itself lives in, so it is usually already on `PATH`). Override the destination with `--bin <DIR>`.
+*This command is not live yet — the first publish is tracked in `issues/open/2026-09-30-mooncakes-cli-distribution.md`.*
+
+### Development — GitHub *(verified path today)*
+
+```sh
+moon install https://github.com/f4ah6o/turtles.git cmd/turtles --branch main
+```
 
 Pin a release once tags are published:
 
 ```sh
 moon install https://github.com/f4ah6o/turtles.git cmd/turtles --tag v0.2.0
+```
+
+### From a local clone
+
+```sh
+moon install ./cmd/turtles
 ```
 
 ## First run in 30 seconds
@@ -187,4 +199,4 @@ The real fixture E2E also validates schema-2 JSON report generation, determinist
 
 ## Planned follow-ups
 
-JUnit reports, richer survivor context, and smarter default test selection are still open. mooncakes.io publishing and prebuilt release binaries are deliberately out of scope until the registry flow is exercised; `moon install` from the git URL is the verified install path today.
+JUnit reports, richer survivor context, and smarter default test selection are still open. Mooncakes publishing is planned — pending the first publish tracked in `issues/open/2026-09-30-mooncakes-cli-distribution.md`; prebuilt release binaries remain out of scope. `moon install` from the git URL is the verified install path today.

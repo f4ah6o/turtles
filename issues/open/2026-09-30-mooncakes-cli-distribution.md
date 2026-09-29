@@ -1,6 +1,6 @@
 # Publish turtles to Mooncakes as the stable CLI distribution channel
 
-- Status: open (2026-09-30)
+- Status: open (2026-09-30) — Phase 1 (pre-publish readiness) done, awaiting first publish
 - Origin: distribution decision after reviewing current CLI/package layout
 - Affected area: `moon.mod`, `cmd/turtles/moon.pkg`, `README.md`, release/publish workflow
 - Primary user-facing command: `turtles`
@@ -201,6 +201,26 @@ Then execute turtles against a small fixture/module and confirm it can invoke `m
 - [ ] README no longer says Mooncakes publishing is out of scope.
 - [ ] No unnecessary public library API is introduced solely for publication.
 - [ ] Existing repository tests and fixture E2E remain green.
+
+## Progress (2026-09-29, Phase 1 — pre-publish readiness)
+
+Verified on `moon 0.1.20260920`:
+
+- **P0 metadata**: `moon.mod` has `name = "f4ah6o/turtles"`, `version = "0.2.0"`, `readme`, `repository`, `license = "MIT"`, `description`, `keywords`, `preferred_target = "native"`. `cmd/turtles/moon.pkg` is `pkgtype(kind: "executable")` with `supported_targets = "+native"`. `turtles_version` in `cmd/turtles/config.mbt` matches (`0.2.0`). No git tags exist yet.
+- **`moon package --list`**: builds `_build/publish/f4ah6o-turtles-0.2.0.zip`; the list is written to **stderr**. Initially packaged 52 files including the whole `issues/` tree — added a root `.moonignore` (`issues/`; the modern mechanism — `include`/`exclude` fields in `moon.mod` are deprecated). Result: 42 files, `_build/`/dot-dirs excluded by default, `issues/` now excluded; `fixtures/` and `docs/` retained (small, part of the source distribution).
+- **`moon publish --dry-run`**: exits 255 with `failed to open credentials file ... please login first` — the dry-run still requires registry credentials on this toolchain, so `moon package --list` is the credential-free publish validation (now also in CI).
+- **Clean-install smoke**: `moon install --path ./cmd/turtles --bin <tmpdir>` (closest available simulation of the registry path — `moon install` has no "install from packaged zip" mode) produced a working binary: `turtles --version` → `turtles 0.2.0`; `turtles --help` ok; `turtles --dir <copy of fixtures/basic> --timeout 30` → 6/6 mutants KILLED, score 100, exit 0.
+- **CI (P2-lite)**: added a `moon.mod` version ⇔ `turtles_version` consistency assertion and a `moon package --list` step to `.github/workflows/ci.yml`.
+- **README**: Install restructured into Stable (Mooncakes) / Development (GitHub) / local-clone. The registry command is documented as the target UX but clearly marked *pending first publish*; the git-URL install remains the verified path. The "out of scope" claim now reads "planned — pending first publish".
+
+Remaining (Phase 2 — needs registry credentials + a publish decision):
+
+- Decide first publish version (0.2.0 as-is vs a bump) — `moon publish` is irreversible.
+- `moon login` + actual `moon publish` of the selected version.
+- Post-publish clean install: `moon install f4ah6o/turtles/cmd/turtles@<version>` from a clean environment, verify `turtles --version`/`--help`, smoke run.
+- Flip the README Stable section from "pending first publish" to the live pinned command; CI usage example pinning the published version.
+- Git tag `v<version>` at the published commit (enables the `--tag` install path documented in README).
+- Optional P2 follow-ups after manual flow is proven: automated version-consistency check beyond CI, tag/release automation, publish automation, post-publish install smoke in CI.
 
 ## Non-goals
 

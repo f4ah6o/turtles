@@ -17,6 +17,16 @@ jobs:
         run: moon update
       - name: Check formatting
         run: moon fmt --check
+      - name: Assert version consistency
+        run: |
+          mod_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' moon.mod)
+          cli_version=$(sed -n 's/.*turtles_version *: *String *= *"\(.*\)".*/\1/p' cmd/turtles/config.mbt)
+          if [ "$mod_version" != "$cli_version" ]; then
+            echo "moon.mod version ($mod_version) != turtles_version ($cli_version)"
+            exit 1
+          fi
+      - name: Validate publishable package
+        run: moon package --list
       - name: Check
         run: moon check --target native --deny-warn
       - name: Unit tests
