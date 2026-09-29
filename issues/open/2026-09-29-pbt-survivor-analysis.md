@@ -30,6 +30,21 @@ The design for each item is in the done record's P2 sections; summary:
    white-box `@quickcheck.check(args => f(args) == f__turtles_orig(args))`.
    Additive field `witness`: the counterexample when falsified (observable
    mutant, real gap), or `none` ("possibly equivalent") within the budget.
+   Requirements:
+   - **Self-contained import.** The generated test must not assume the
+     project already uses PBT. Even core QuickCheck needs an explicit package
+     import, so in the temporary workspace only, add
+     `"moonbitlang/core/quickcheck" for "wbtest"` to the target package's
+     `moon.pkg` (or the `moon.pkg.json` equivalent) when missing, and restore
+     the manifest together with the source after the witness run.
+   - **Recursive functions.** Copying only `f`'s original body is not an
+     original implementation when `f` is recursive or mutually recursive:
+     calls inside the clone still reach the mutated `f`, so the comparison is
+     against a hybrid and may wrongly yield `witness: none`. The first
+     implementation excludes functions in a recursive SCC of the package call
+     graph (no `witness` field, reason recorded, e.g.
+     `witness_skipped: "recursive"`). Cloning the SCC with rewritten recursive
+     references is a later extension.
 3. **Property amplification.** `--pbt-amplify <N>`: for survivors only, re-run
    the property tests with `max_success` × N and additional seeds by rewriting
    `quick_check*` / `check` arguments in the temporary workspace. A mutant killed
@@ -55,6 +70,8 @@ The design for each item is in the done record's P2 sections; summary:
 
 - [ ] Opt-in property suggestion files for eligible survivors; no writes outside the output directory.
 - [ ] `witness` field on survivors of eligible functions; falsified and not-falsified cases covered on `fixtures/pbt`.
+- [ ] Witness runs compile in a fixture with no QuickCheck import, and the manifest is restored afterwards.
+- [ ] Recursive and mutually-recursive functions are excluded from witnesses with a recorded reason.
 - [ ] `--pbt-amplify <N>` re-runs properties only for survivors and marks `amplified: true` kills.
 - [ ] Default runs (no new flags) produce identical verdicts and JSON on existing fixtures; JSON changes additive only.
 - [ ] README documents the new flags and fields.

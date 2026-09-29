@@ -42,6 +42,13 @@ Deviations from the design below:
   is exercised through default-visibility functions. For executable packages
   such as `cmd/turtles` (no `pub` declarations) the public score is vacuous.
 - `body` stays opt-in (not a default group).
+- Determinism guard: the design text below says both baseline runs happen in
+  the reference workspace. As implemented (#18), both runs use the pristine
+  validation copy, and `sweep_workspace` restores the snapshot between them,
+  so side effects of the first run cannot leak into the second. The design
+  sections below are historical and non-normative; the P2 witness design is
+  superseded by `../open/2026-09-29-pbt-survivor-analysis.md` (QuickCheck import
+  and recursive-function handling).
 - The README documents these features in "Kill attribution and determinism"
   and "Skipping blocks" rather than a single "Property-based testing" section.
 - Self-run after #22 on the merged tree: 844 mutants, 67.39%
