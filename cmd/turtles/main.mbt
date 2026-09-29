@@ -63,14 +63,14 @@ async fn iterate_reuse(
       let mut matched = 0
       for i = 0; i < mutations.length(); i = i + 1 {
         match prior_reusable_outcome(prior, mutations[i], files, moon_version) {
-          Some(outcome) => {
+          Some((outcome, kills)) => {
             reuse[i] = Some({
               mutation: mutations[i],
               outcome,
               duration_ms: 0L,
               reused: true,
               packages: None,
-              kills: None,
+              kills,
             })
             matched = matched + 1
           }

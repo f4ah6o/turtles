@@ -193,6 +193,56 @@ fn describe_kill(kill : Kill) -> String {
 }
 
 ///|
+/// Read a `Kill` back out of a JSON report's `killed_by` entry — the
+/// shape `Kill`'s `ToJson` writes. Any missing or malformed field
+/// yields None; a report written before attribution simply has no
+/// `killed_by` array to read.
+fn kill_from_json(json : Json) -> Kill? {
+  guard json is Object(fields) else { return None }
+  guard fields.get("package") is Some(String(pkg)) else { return None }
+  guard fields.get("filename") is Some(String(filename)) else { return None }
+  guard fields.get("test_name") is Some(String(test_name)) else { return None }
+  let kind = match fields.get("kind") {
+    Some(String("Property")) => Property
+    Some(String("Snapshot")) => Snapshot
+    Some(String("DocTest")) => DocTest
+    Some(String("Assertion")) => Assertion
+    _ => return None
+  }
+  let index = match fields.get("index") {
+    Some(Number(n, ..)) => n.to_int()
+    Some(String(text)) => @string.parse_int(text) catch { _ => 0 }
+    _ => 0
+  }
+  let counterexample = match fields.get("counterexample") {
+    Some(String(value)) => Some(value)
+    _ => None
+  }
+  Some({ pkg, filename, index, test_name, kind, counterexample, })
+}
+
+///|
+/// The `killed_by` array of a prior report's mutant row, or None when
+/// the row predates attribution or listed no records — either way the
+/// reused verdict keeps the `attribution: "unavailable"` fallback.
+fn kills_from_json(json : Json) -> Array[Kill]? {
+  guard json is Object(fields) else { return None }
+  guard fields.get("killed_by") is Some(Array(entries)) else { return None }
+  let kills : Array[Kill] = []
+  for entry in entries {
+    match kill_from_json(entry) {
+      Some(kill) => kills.push(kill)
+      None => ()
+    }
+  }
+  if kills.is_empty() {
+    None
+  } else {
+    Some(kills)
+  }
+}
+
+///|
 /// Failure names present in exactly one of two runs — the unstable
 /// tests the determinism guard reports.
 fn unstable_kills(first : Array[Kill], second : Array[Kill]) -> Array[Kill] {
