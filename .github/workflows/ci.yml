@@ -21,6 +21,10 @@ jobs:
         run: |
           mod_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' moon.mod)
           cli_version=$(sed -n 's/.*turtles_version *: *String *= *"\(.*\)".*/\1/p' cmd/turtles/config.mbt)
+          if [ -z "$mod_version" ] || [ -z "$cli_version" ]; then
+            echo "failed to extract version: moon.mod='$mod_version' turtles_version='$cli_version'"
+            exit 1
+          fi
           if [ "$mod_version" != "$cli_version" ]; then
             echo "moon.mod version ($mod_version) != turtles_version ($cli_version)"
             exit 1
