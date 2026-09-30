@@ -276,6 +276,15 @@ the same rules:
 - `amplified: true`, `witness` and suggestions belong to the same target as
   the verdict, `killed_by` and counterexample they refine
 - `--iterate` does not reuse any of them across a target change
+- property suggestion files carry the producing target and a generated
+  marker; each `--emit-properties` run sweeps marker-bearing files that are
+  not in its live set, so a previous target's suggestions are not left in
+  `properties/` as current results
+- the generated witness harness is appended to the temporary copy of the
+  file defining the function, so it inherits that file's `targets`
+  applicability from Moon; turtles does not evaluate target conditions
+  itself, and `--target all` does not compile the harness for backends
+  where the function does not exist
 
 ## Fixture design
 
@@ -328,6 +337,21 @@ With `--target native --pbt-witness --pbt-amplify <N>`, js-only mutants get no
 witness or amplification, and every Moon command the analyses run carries
 `--target native`.
 
+Run `--target native --emit-properties`, then `--target js --emit-properties`
+with the same output directory. After the js run, `properties/` has no
+suggestion for a native-only mutant, and the report's `properties` list and
+`target` describe only the js run.
+
+Include a surviving native-only function that is witness-eligible. Then
+
+```sh
+turtles --dir fixtures/targets --target all --pbt-witness
+```
+
+compiles the generated harness on every backend (no UNVIABLE or setup error
+caused by the harness on js/wasm), and records the witness for the native
+function.
+
 ## duckdb.mbt dogfood acceptance
 
 After the fixture gates pass, validate against `f4ah6o/duckdb.mbt`.
@@ -357,6 +381,7 @@ The dogfood step should not modify `duckdb.mbt`; it validates turtles against a 
 - `--affected` and active-source discovery use the same target-aware plan.
 - `--iterate` cannot reuse across target changes.
 - PBT analyses (witness, suggestions, amplification) never cross the selected target boundary.
+- after a target switch, stale property suggestions from the previous target are swept; the `--target all` witness harness compiles on every backend.
 - report schema is 3 and remains deterministic.
 - `--list --target ...` filters by target without running tests.
 - no-target invocation preserves current behavior and output semantics apart from the schema/version changes required by implementation.
