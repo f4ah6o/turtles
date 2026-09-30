@@ -129,10 +129,23 @@ jobs:
           "$bin/turtles" --help
           "$bin/turtles" --dir fixtures/basic --list
       - name: Smoke-test the published Mooncakes release
+        # The version in moon.mod may not be published yet (e.g. a release
+        # bump PR before `moon publish`). Skipping in that case keeps PR CI
+        # green without requiring a pre-merge registry publication; once the
+        # version exists, any CI run verifies the published artifact.
         run: |
-          bin="$RUNNER_TEMP/turtles-mooncakes-bin"
-          moon install f4ah6o/turtles/cmd/turtles@0.3.0 --bin "$bin"
-          test "$("$bin/turtles" --version)" = "turtles 0.3.0"
+          mod_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' moon.mod)
+          curl -fsSL "https://mooncakes.io/api/v0/modules/f4ah6o/turtles" \
+            -o "$RUNNER_TEMP/mooncakes.json"
+          if jq -e --arg v "$mod_version" \
+              '.versions[] | select(.version == $v and (.yanked | not))' \
+              "$RUNNER_TEMP/mooncakes.json" > /dev/null; then
+            bin="$RUNNER_TEMP/turtles-mooncakes-bin"
+            moon install "f4ah6o/turtles/cmd/turtles@$mod_version" --bin "$bin"
+            test "$("$bin/turtles" --version)" = "turtles $mod_version"
+          else
+            echo "f4ah6o/turtles@$mod_version is not published yet; skipping"
+          fi
       - name: Emit JSON report for empty candidate sets
         run: |
           report="$RUNNER_TEMP/turtles-empty-report.json"
