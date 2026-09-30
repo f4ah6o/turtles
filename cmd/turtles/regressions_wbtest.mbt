@@ -23,6 +23,9 @@ fn regression_result(
     reused: false,
     packages: None,
     kills,
+    witness: None,
+    witness_skipped: None,
+    amplified: None,
   }
 }
 

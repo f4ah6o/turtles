@@ -54,6 +54,9 @@ fn json_mutation(result : MutationResult) -> JsonMutation {
     packages: result.packages,
     killed_by,
     attribution,
+    witness: result.witness,
+    witness_skipped: result.witness_skipped,
+    amplified: result.amplified,
   }
 }
 
@@ -162,6 +165,7 @@ fn build_report(
   regressions? : Array[String] = [],
   target? : String? = None,
   inactive? : Array[Mutation] = [],
+  properties? : Array[String]? = None,
 ) -> JsonReport {
   let mutants : Array[JsonMutation] = []
   let mut reused = 0
@@ -205,6 +209,7 @@ fn build_report(
     skipped_files,
     files: Some(files),
     regressions,
+    properties,
   }
 }
 

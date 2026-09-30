@@ -157,6 +157,103 @@ jobs:
             --timeout 60 --output-dir "$out" 2>&1 \
             | tee "$RUNNER_TEMP/turtles-iterate-js.txt"
           grep -q "reusing 0/" "$RUNNER_TEMP/turtles-iterate-js.txt"
+      - name: PBT survivor analyses on the pbt fixture
+        run: |
+          # fixtures/pbt exercises every branch of --emit-properties,
+          # --pbt-witness and --pbt-amplify: effects-unknown (Ref state),
+          # recursive (self + mutual), witness "none" (equivalent mutants),
+          # falsified witnesses, collision-safe naming, and an
+          # amplification-only kill.
+          report="$RUNNER_TEMP/turtles-pbt.json"
+          moon run cmd/turtles -- --dir fixtures/pbt --timeout 120             --emit-properties --pbt-witness --pbt-amplify 4             --json "$report" || status=$?
+          test "${status:-0}" -eq 1  # survivors -> exit 1
+          python - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          mutants = report["mutants"]
+          amplified = [m for m in mutants if m.get("amplified")]
+          assert len(amplified) == 1, amplified
+          assert amplified[0]["outcome"] == "KILLED"
+          assert "witness" not in amplified[0]
+          assert "witness_skipped" not in amplified[0]
+          survivors = [m for m in mutants if m["outcome"] == "SURVIVED"]
+          skips = {m.get("witness_skipped") for m in survivors}
+          assert "effects-unknown" in skips, skips
+          assert "recursive" in skips, skips
+          witnesses = {m.get("witness") for m in survivors}
+          assert "none" in witnesses, witnesses
+          assert any(
+              w not in (None, "none") for w in witnesses
+          ), "expected at least one falsified witness"
+          props = report["properties"]
+          assert all(p.startswith("properties/") for p in props), props
+          assert all(
+              p.endswith(".mbt") for p in props
+          ), props
+          assert len(props) >= 1, props
+          PY
+          ls fixtures/pbt/.turtles/properties/*.mbt | head -1 | xargs head -2
+          # a default run emits none of the PBT fields
+          moon run cmd/turtles -- --dir fixtures/pbt --timeout 120             --json "$RUNNER_TEMP/turtles-pbt-default.json" || status=$?
+          test "${status:-0}" -eq 1
+          python - "$RUNNER_TEMP/turtles-pbt-default.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+          assert "properties" not in report
+          assert all(
+              "witness" not in m and "witness_skipped" not in m
+              and "amplified" not in m
+              for m in report["mutants"]
+          )
+          PY
+      - name: PBT analyses on the targets fixture
+        run: |
+          # Target switch: native-only suggestions are swept by the js run;
+          # --target all compiles the witness harness on every backend.
+          out="$RUNNER_TEMP/turtles-targets-pbt"
+          moon run cmd/turtles -- --dir fixtures/targets --target native             --emit-properties --output-dir "$out" --timeout 60 || test $? -eq 1
+          ls "$out/properties/" | tee "$RUNNER_TEMP/props-native.txt"
+          moon run cmd/turtles -- --dir fixtures/targets --target js             --emit-properties --output-dir "$out" --timeout 60 || test $? -eq 1
+          ls "$out/properties/" | tee "$RUNNER_TEMP/props-js.txt"
+          python - "$RUNNER_TEMP/props-native.txt" "$RUNNER_TEMP/props-js.txt" <<'PY'
+          import sys
+
+          def names(path):
+              with open(path, encoding="utf-8") as handle:
+                  return {line.strip() for line in handle if line.strip()}
+
+          native = names(sys.argv[1])
+          js = names(sys.argv[2])
+          assert len(js) == 1, js
+          assert len(native - js) == 1, (native, js)
+          PY
+          moon run cmd/turtles -- --dir fixtures/targets --target all             --pbt-witness --timeout 60             --json "$RUNNER_TEMP/turtles-all.json" || test $? -eq 1
+          python - "$RUNNER_TEMP/turtles-all.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+          assert all(
+              m["outcome"] != "UNVIABLE" for m in report["mutants"]
+          ), "witness harness must compile on every backend"
+          survivors = [m for m in report["mutants"] if m["outcome"] == "SURVIVED"]
+          assert survivors, "expected survivors"
+          assert all(
+              m.get("witness") == "none" or m.get("witness_skipped")
+              for m in survivors
+          ), survivors
+          assert any(
+              m["path"] == "native_only.mbt" for m in survivors
+          ), "native-only survivor expected under --target all"
+          PY
       - name: fail-under gates on the mutation score
         run: |
           # The isolation fixture scores 50%: a threshold at the score passes

@@ -39,7 +39,7 @@ async test "mutant ordering does not change classifications" {
       [],
     )
     inspect(mutations.length(), content="2")
-    let (_, _, _, forward, _, _) = run_mutations(
+    let (_, _, _, forward, _, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -52,7 +52,7 @@ async test "mutant ordering does not change classifications" {
     for i = mutations.length() - 1; i >= 0; i = i - 1 {
       reversed.push(mutations[i])
     }
-    let (_, _, _, backward, _, _) = run_mutations(
+    let (_, _, _, backward, _, _, _) = run_mutations(
       module_dir,
       reversed,
       120000,
@@ -101,7 +101,7 @@ async test "native target selects native-only tests for classification" {
       [],
       [],
     )
-    let (_, _, _, results, _, _) = run_mutations(
+    let (_, _, _, results, _, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -135,7 +135,7 @@ async test "reported durations never exceed the wall clock" {
       [],
     )
     let started = @async.now()
-    let (baseline_duration_ms, _, _, results, _, _) = run_mutations(
+    let (baseline_duration_ms, _, _, results, _, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -352,7 +352,7 @@ async test "target-inactive mutants are partitioned out of classification" {
       [],
     )
     inspect(mutations.length(), content="2")
-    let (_, _, _, results, inactive, _) = run_mutations(
+    let (_, _, _, results, inactive, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -388,7 +388,7 @@ async test "affected plan retains the selected target" {
       [],
       [],
     )
-    let (_, _, _, results, _, scope) = run_mutations(
+    let (_, _, _, results, _, scope, _) = run_mutations(
       module_dir,
       mutations,
       120000,

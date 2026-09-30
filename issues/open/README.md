@@ -4,7 +4,6 @@ This directory contains review findings that should remain actionable even if th
 
 Open tasks:
 
-- [PBT survivor analysis: property suggestions, differential witness, amplification](2026-09-29-pbt-survivor-analysis.md)
 
 Completed task files live in [`../done/`](../done/).
 

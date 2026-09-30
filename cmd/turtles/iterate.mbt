@@ -6,7 +6,9 @@ struct PriorReport {
   moon_version : String?
   target : String?
   files : Map[String, String]
-  mutants : Map[String, (Mutation, Outcome, Array[Kill]?)]
+  /// identity -> (mutation, outcome, kills, amplified): the flag travels
+  /// so a reused KILLED verdict can keep --pbt-amplify's attribution
+  mutants : Map[String, (Mutation, Outcome, Array[Kill]?, Bool)]
 }
 
 ///|
@@ -59,13 +61,15 @@ async fn load_prior_report(path : String) -> PriorReport? {
       }
     _ => ()
   }
-  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?)] = Map([])
+  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?, Bool)] = Map([])
   match top.get("mutants") {
     Some(Array(entries)) =>
       for entry in entries {
         match parse_prior_mutant(entry) {
-          Some((mutation, outcome, kills)) =>
-            mutants[mutation_identity(mutation)] = (mutation, outcome, kills)
+          Some((mutation, outcome, kills, amplified)) =>
+            mutants[mutation_identity(mutation)] = (
+              mutation, outcome, kills, amplified,
+            )
           None => ()
         }
       }
@@ -93,7 +97,7 @@ fn json_field_string_or_number(
 }
 
 ///|
-fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?)? {
+fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?, Bool)? {
   guard json is Object(fields) else { return None }
   guard fields.get("path") is Some(String(path)) else { return None }
   guard fields.get("offset") is Some(Number(start, ..)) else { return None }
@@ -108,6 +112,10 @@ fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?)? {
   guard fields.get("column") is Some(Number(column, ..)) else { return None }
   let group = operator_group_from_string(group_text) catch { _ => return None }
   guard outcome_from_name(outcome_text) is Some(outcome) else { return None }
+  let amplified = match fields.get("amplified") {
+    Some(True) => true
+    _ => false
+  }
   Some(
     (
       {
@@ -126,6 +134,7 @@ fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?)? {
       },
       outcome,
       kills_from_json(json),
+      amplified,
     ),
   )
 }
@@ -163,7 +172,7 @@ fn prior_reusable_outcome(
   current_files : Map[String, String],
   moon_version : String?,
   target? : String? = None,
-) -> (Outcome, Array[Kill]?)? {
+) -> (Outcome, Array[Kill]?, Bool)? {
   if prior.schema != 3 {
     return None
   }
@@ -182,15 +191,16 @@ fn prior_reusable_outcome(
     return None
   }
   guard prior.mutants.get(mutation_identity(mutation))
-    is Some((_, outcome, kills)) else {
+    is Some((_, outcome, kills, amplified)) else {
     return None
   }
   match outcome {
     // The kill's attribution travels with the verdict: a reused row
     // keeps the prior report's killed_by rather than degrading to
-    // "unavailable".
-    Killed => Some((outcome, kills))
-    Unviable => Some((outcome, None))
+    // "unavailable". `amplified` is carried along and only emitted when
+    // the current run also has --pbt-amplify on.
+    Killed => Some((outcome, kills, amplified))
+    Unviable => Some((outcome, None, false))
     Survived | Timeout => None
   }
 }

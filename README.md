@@ -59,6 +59,9 @@ turtles --dir . --json report.json # machine-readable report (schema 3)
 turtles --dir . --iterate          # reuse KILLED/UNVIABLE outcomes from the last run
 turtles --dir . --affected         # run only tests that can observe each mutant
 turtles --dir . --emit-regressions # write regression-test templates for property kills
+turtles --dir . --emit-properties  # write property-test skeletons for survivors
+turtles --dir . --pbt-witness      # differential QuickCheck witness for survivors
+turtles --dir . --pbt-amplify 4    # re-run survivor properties with 4x budget
 turtles --dir . --timeout-multiplier 3   # per-phase timeout = 3x the measured baseline (min 10s)
 ```
 
@@ -152,6 +155,16 @@ Every run writes a schema-`3` report and per-survivor unified diffs to `<dir>/.t
                "reused": 0, "score": 100 }
 }
 ```
+
+### Survivor analysis (opt-in)
+
+Three opt-in analyses split the `SURVIVED` bucket — all off by default, so a plain run changes nothing:
+
+- `--emit-properties` writes `<output>/properties/<mutant-id>.mbt` skeleton tests for survivors whose parameter and return types have `Arbitrary + Shrink + Debug` instances. The shape is chosen from the signature: idempotence + involution for `(A) -> A`, commutativity + associativity for `(A, A) -> A`, a round-trip for `encode`/`decode`-style pairs, otherwise a `@quickcheck.check` stub over the parameter tuple. Each generated file starts with the marker `// turtles: generated property suggestion` plus the producing target; each run sweeps marker-bearing files that are no longer in the live set (a target switch removes a native-only mutant's suggestion) while never touching unmarked files. User tests are never edited — drop a skeleton into the package's tests when it looks right.
+- `--pbt-witness` runs a differential witness on eligible survivors: for each surviving `fn f`, a temporary workspace gets a renamed copy of the original body plus a white-box `@quickcheck.check(args => f(args) == f__turtles_orig(args))` and a determinism guard. If QuickCheck falsifies the equivalence, the counterexample is recorded as `"witness"` — strong evidence the mutant is a real gap. Ineligible survivors report `witness_skipped`: `"effects-unknown"` (mutable state, async, non-core calls, trait dispatch — anything the call-graph analysis cannot prove pure), `"recursive"` (the fn sits in a recursive SCC — an unbounded self-rewriting copy could diverge), `"cfg"` (a `#cfg(...)` declaration), `"nondeterministic"` (the guard falsified — `f(args) != f(args)`), `"name-collision"` (no collision-safe helper name left after 16 tries) or `"harness-error"`. `witness`/`witness_skipped` fields appear only on survivors the analysis ran for; `witness: "none"` means the harness ran and did not falsify.
+- `--pbt-amplify <N>` re-runs each survivor's module tests with the property budget scaled ×`N` (`count = 100*N`, or `existing*N` for explicit counts) and seeds shifted, in a temporary workspace. A mutant killed only after amplification reports `KILLED` with `"amplified": true`.
+
+All three respect `--target`: every Moon invocation is forwarded through the same target-aware helper, target-inactive mutants get no analysis, and `--iterate` never reuses witness/suggestion/amplification results across a target change. The witness harness is appended to the mutated copy of the function's own file, so it inherits that file's `targets` applicability — `--target all` compiles it on every backend where the function exists.
 
 `--output-dir <path>` relocates the report directory; `--json` additionally writes a plain report anywhere for CI. `--iterate` loads the previous `<output-dir>/report.json` and reuses `KILLED`/`UNVIABLE` outcomes for mutants whose file content hash and identity tuple are unchanged (marked `"reused": true`); `SURVIVED`/`TIMEOUT` mutants always re-run. Reuse is refused wholesale when the schema, turtles version, moon version, or selected target differ, or when *any* fingerprinted file changed since the report — sources, tests, `moon.pkg`, `moon.mod`, `turtles.toml` — since a verdict may owe its outcome to a file the mutant never touches. `--affected` is opt-in test selection: it parses `moon test --dry-run` to learn the package graph and runs `moon test -p` on just the mutated package plus packages whose test targets transitively link it, falling back to a module-wide run whenever resolution is uncertain. Under an explicit `--target` that same target-aware dry-run is what marks inactive mutants, so selection and test planning can never disagree. An empty mutation set still produces a schema-3 report with `mutants: []`; `--list` never runs tests.
 

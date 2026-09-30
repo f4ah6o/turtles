@@ -225,3 +225,86 @@ turtles --dir fixtures/pbt
 turtles --dir fixtures/pbt --emit-properties --pbt-witness --pbt-amplify 4
 turtles --dir .   # self-application
 ```
+
+## Completion record (2026-09-30)
+
+- Status: **done** (PR `devin/1790784779-pbt-survivor-analysis`, stacked on
+  `devin/1790783766-target-aware-p0`).
+
+### Implemented
+
+- `--emit-properties`: `properties.mbt` writes `<output>/properties/<mutant-id>.mbt`
+  skeletons for surviving fns whose params/return are arbitrable
+  (`suggestible`). Shape selection: `(A) -> A` → idempotence + involution,
+  `(A, A) -> A` → commutative + associative, `encode*`/`decode*`/`to_*`/`from_*`
+  pairs → round-trip, else a `@quickcheck.check` stub over the parameter
+  tuple. Line 1 is `// turtles: generated property suggestion`, line 2
+  `// target: <t>|none`. Every run sweeps marked files outside the live set
+  and never deletes unmarked files. Report top-level `properties` array lists
+  the emitted `properties/<id>.mbt` paths.
+- `--pbt-witness`: `survivor.mbt` builds a per-module index (top-level fns,
+  lets, tests, imports, call edges) and `witness.mbt` appends to the mutated
+  copy of the function's own file a collision-safe original-body clone
+  (`<name>__turtles_orig__mut<hex>`, `_1.._15` retries against the package
+  symbol/test tables → `witness_skipped: "name-collision"`), a determinism
+  guard (`f_orig(args) == f_orig(args)` → `"nondeterministic"`), and the
+  witness test (`f(args) == f_orig(args)` → `witness` = counterexample or
+  `"none"`). Eligibility (`witness_eligible`) enforces value-typed
+  params/return, no generics/async/stubs, `#cfg` → `"cfg"`, recursive SCCs
+  (self + mutual, via `find_recursive_nodes`) → `"recursive"`, and the
+  effects lattice over every reachable fn → `"effects-unknown"`.
+- `--pbt-amplify <N>`: `amplify.mbt` rewrites `quick_check*`/`check` call
+  sites across all module sources (test files included) in the analysis
+  workspace — `count`/`max_success` scaled `*N`, `seed` offset by a constant,
+  missing args appended before the closing paren (trailing-comma aware), and
+  only for callees resolvable to quickcheck by the package's imports. A kill
+  that only surfaces under amplification reports `KILLED` + `amplified: true`
+  with no witness or suggestion.
+- Execution order per the issue: classification → `--pbt-amplify` on initial
+  survivors → final outcomes → `--pbt-witness` on final survivors →
+  `--emit-properties` on final survivors → report.
+- Target selection: all analysis Moon invocations go through `moon_args`
+  (check, test, plan); target-inactive mutants never reach the analyses;
+  `--iterate` restores `amplified` only under a current `--pbt-amplify` run
+  and never reuses witness/suggestion fields.
+- Byte-level offsets: all generated-source splices operate on UTF-8 bytes
+  (`@utf8.encode`), never `String` indexing, so non-ASCII sources cannot
+  shift the spans.
+
+### Verification
+
+- Gates: `moon fmt --check`, `moon check --target native --deny-warn`,
+  `moon test --target native` (178 tests),
+  `moon -C fixtures/{basic,isolation,empty,pbt,body} test`,
+  `git diff --check` — all green.
+- New white-box coverage (`survivor_wbtest.mbt`): recursive SCC detection
+  (self + mutual, non-recursive negative), eligibility → skip-reason mapping,
+  collision-safe naming (16 candidates, `_1` fallback, saturation → None),
+  appendix shape (original body + guard + witness), labelled-arg forwarding,
+  amplify rewrites (scale/offset/insert/trailing-comma/non-quickcheck),
+  suggestion shapes (idempotent/involution, round-trip, stub),
+  `emit_property_files` live write + stale sweep + unmarked keep + target
+  line update, `ensure_quickcheck_import` (scoped-only → append, idempotent,
+  `moon.pkg.json`), flag parsing (`--pbt-amplify 0` rejected).
+- Fixture E2E: `fixtures/pbt` exercises every branch —
+  `tally`/`counter` → `effects-unknown`, `down`/`even_to_zero`/`odd_to_zero`
+  → `recursive`, `halved` + pre-existing `halved__turtles_orig__mut9244b2daa5e3b90c`
+  → collision retry producing a witness, `tweak` → falsified witness
+  `(0, -1)`, `hole` (`0 + x` → `0 - x`) → `KILLED` + `amplified: true` only
+  with the flag, `plus_zero`/`hole` conditions → `witness: "none"`.
+  A default run emits none of the new fields (verified: mutant rows carry no
+  `witness`/`witness_skipped`/`amplified`, report has no `properties`).
+- `fixtures/targets` E2E: `--target native` gives native-only +
+  common survivors witnesses (`"none"`) and js-only mutants none;
+  `--target all --pbt-witness` compiles the harness on wasm, wasm-gc, js and
+  native; `--emit-properties --target native` then `--target js` sweeps the
+  native-only suggestion (recorded in `20260930-target-aware-mutation-testing.md`).
+- CI: a workflow step runs the pbt fixture with all three flags and asserts
+  the amplified kill, witness fields, skip reasons, and the `properties` list.
+
+### Follow-ups left open
+
+The "Remaining gaps and open questions" items stay open product decisions:
+executable witness-call regression templates, vacuous `score_public` on
+executable packages, whether `body` becomes a default group, and
+core-only vs `moonbitlang/quickcheck` `@laws` suggestions.

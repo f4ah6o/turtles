@@ -25,6 +25,9 @@ fn print_help() -> Unit {
       #|      --operators <LIST>  Comma-separated operator groups (overrides
       #|                        turtles.toml; body is opt-in only)
       #|      --emit-regressions  Write regression-test templates for property kills
+      #|      --emit-properties   Write property-test suggestions for survivors
+      #|      --pbt-witness       Differential QuickCheck witness for survivors
+      #|      --pbt-amplify <N>   Re-run survivor properties with N x count and fresh seeds
       #|      --list              List mutations without running tests
       #|      --version           Print the turtles version and exit
       #|  -h, --help              Print help
@@ -48,6 +51,9 @@ fn parse_args(args : Array[String]) -> Config raise {
   let mut affected = false
   let cli_operators : Array[OperatorGroup] = []
   let mut emit_regressions = false
+  let mut emit_properties = false
+  let mut pbt_witness = false
+  let mut pbt_amplify : Int? = None
   let mut i = 1
   // Every iteration must consume at least one argument, so the loop can run
   // at most args.length() times; more steps means the cursor went backwards.
@@ -139,6 +145,19 @@ fn parse_args(args : Array[String]) -> Config raise {
         }
       }
       "--emit-regressions" => emit_regressions = true
+      "--emit-properties" => emit_properties = true
+      "--pbt-witness" => pbt_witness = true
+      "--pbt-amplify" => {
+        guard i + 1 < args.length() else {
+          fail("--pbt-amplify requires a factor")
+        }
+        i = i + 1
+        let factor = @string.parse_int(args[i]) catch {
+          _ => fail("invalid pbt-amplify factor: \{args[i]}")
+        }
+        guard factor >= 1 else { fail("--pbt-amplify must be >= 1") }
+        pbt_amplify = Some(factor)
+      }
       "--output-dir" => {
         guard i + 1 < args.length() else {
           fail("--output-dir requires a path")
@@ -183,6 +202,9 @@ fn parse_args(args : Array[String]) -> Config raise {
       Some(cli_operators)
     },
     emit_regressions,
+    emit_properties,
+    pbt_witness,
+    pbt_amplify,
   }
 }
 

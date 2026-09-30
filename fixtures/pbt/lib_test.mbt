@@ -41,3 +41,43 @@ test "snapshot clamp" {
 test "example abs_diff" {
   assert_eq(@turtles_pbt_fixture.abs_diff(7, 0), 7)
 }
+
+///|
+test "prop hole is identity" {
+  @quickcheck.check((x : Int) => @turtles_pbt_fixture.hole(x) == x)
+}
+
+///|
+test "prop tweak only observes k == 0" {
+  @quickcheck.check((a : Int) => @turtles_pbt_fixture.tweak(a, 0) == a)
+}
+
+///|
+test "tally returns x" {
+  assert_eq(@turtles_pbt_fixture.tally(7), 7)
+}
+
+///|
+test "down hits zero" {
+  assert_eq(@turtles_pbt_fixture.down(5), 0)
+}
+
+///|
+test "odd_to_zero" {
+  assert_eq(@turtles_pbt_fixture.odd_to_zero(3), 0)
+}
+
+///|
+test "halved" {
+  assert_eq(@turtles_pbt_fixture.halved(8), 4)
+}
+
+///|
+test "plus_zero" {
+  assert_eq(@turtles_pbt_fixture.plus_zero(5), 5)
+}
+
+///|
+test "collision-named helper candidate" {
+  assert_eq(@turtles_pbt_fixture.halved__turtles_orig__mut9244b2daa5e3b90c(4), 5)
+}

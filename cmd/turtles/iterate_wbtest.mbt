@@ -29,8 +29,8 @@ fn mk_prior(
   kills : Array[Kill]?,
 ) -> PriorReport {
   let m = mk_mutation("a.mbt", 0, 1, "+", "-")
-  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?)] = Map([])
-  mutants[mutation_identity(m)] = (m, outcome, kills)
+  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?, Bool)] = Map([])
+  mutants[mutation_identity(m)] = (m, outcome, kills, false)
   let files : Map[String, String] = Map([])
   files["a.mbt"] = file_hash
   {
@@ -57,7 +57,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     None,
   )
   match prior_reusable_outcome(prior, m, current, Some("moon x")) {
-    Some((Killed, None)) => ()
+    Some((Killed, None, _)) => ()
     _ => fail("expected reused KILLED")
   }
   assert_true(
@@ -79,7 +79,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
       Some("moon x"),
       target=Some("native"),
     )
-    is Some((Killed, None)),
+    is Some((Killed, None, _)),
   )
   // Survived and Timeout never reuse.
   let prior_survived = mk_prior(
@@ -214,7 +214,7 @@ test "iterate refuses reuse when an unmutated fingerprint file changed" {
   }
   assert_true(
     prior_reusable_outcome(prior, m, unchanged, Some("moon x"))
-    is Some((Killed, None)),
+    is Some((Killed, None, _)),
   )
 }
 
@@ -269,7 +269,7 @@ async test "iterate round-trips killed_by attribution from a prior report" {
     current["a.mbt"] = "hash-a"
     let m = mk_mutation("a.mbt", 0, 1, "+", "-")
     match prior_reusable_outcome(prior, m, current, Some("moon x")) {
-      Some((Killed, Some(kills))) => {
+      Some((Killed, Some(kills), _)) => {
         assert_eq(kills.length(), 1)
         inspect(kills[0].pkg, content="probe/p")
         inspect(kills[0].filename, content="lib_test.mbt")
@@ -288,7 +288,7 @@ async test "iterate round-trips killed_by attribution from a prior report" {
     }
     assert_true(
       prior_reusable_outcome(bare, m, current, Some("moon x"))
-      is Some((Killed, None)),
+      is Some((Killed, None, _)),
     )
   })
 }

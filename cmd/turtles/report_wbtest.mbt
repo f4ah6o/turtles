@@ -22,6 +22,9 @@ fn report_test_result(outcome : Outcome) -> MutationResult {
     reused: false,
     packages: None,
     kills: None,
+    witness: None,
+    witness_skipped: None,
+    amplified: None,
   }
 }
 
@@ -48,6 +51,9 @@ fn report_result_with(
     reused: false,
     packages: None,
     kills: None,
+    witness: None,
+    witness_skipped: None,
+    amplified: None,
   }
 }
 
