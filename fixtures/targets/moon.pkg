@@ -1,0 +1,8 @@
+options(
+  targets: {
+    "native_only.mbt": ["native"],
+    "native_only_test.mbt": ["native"],
+    "js_only.mbt": ["js"],
+    "js_only_test.mbt": ["js"],
+  },
+)

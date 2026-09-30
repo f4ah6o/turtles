@@ -115,7 +115,7 @@ test "visibility_summary splits outcomes by bucket" {
 }
 
 ///|
-async test "write_json_report emits schema-2 JSON" {
+async test "write_json_report emits schema-3 JSON" {
   let temp = @fs.tmpdir(prefix="turtles-test")
   @async.with_task_group(group => {
     group.add_defer(() => @fs.rmdir(temp, recursive=true))
@@ -133,19 +133,24 @@ async test "write_json_report emits schema-2 JSON" {
       { "m.mbt": "hash" },
       50.0,
       target=Some("native"),
+      inactive=[mk_mutation("idle.mbt", 0, 1, "+", "-")],
     )
     write_json_report(path, report)
     let content = @fs.read_file(path).text()
     assert_true(content.has_suffix("\n"))
-    assert_true(content.contains("\"schema\": 2"))
+    assert_true(content.contains("\"schema\": 3"))
     assert_true(content.contains("\"module\": \"module/root\""))
     assert_true(content.contains("\"turtles_version\""))
     assert_true(content.contains("\"moon_version\": \"moon 0.1.x\""))
     assert_true(content.contains("\"target\": \"native\""))
+    assert_true(content.contains("\"inactive_mutants\": 1"))
+    assert_true(content.contains("\"idle.mbt\""))
     // Int64 fields serialize as JSON strings (schema-1 did the same for
     // duration_ms — parsers must accept the quoted form).
     assert_true(content.contains("\"baseline_check_ms\": \"100\""))
     assert_true(content.contains("\"baseline_test_ms\": \"900\""))
+    // Inactive mutants are excluded from the mutants array entirely.
+    assert_true(!content.contains("\"path\": \"idle.mbt\""))
     assert_true(content.contains("\"test_scope\": \"module\""))
     assert_true(content.contains("\"killed\": 1"))
     assert_true(content.contains("\"survived\": 1"))
@@ -167,6 +172,30 @@ async test "write_json_report emits schema-2 JSON" {
     write_json_report(path, report)
     assert_true(@fs.read_file(path).text().contains("\"killed\": 1"))
   })
+}
+
+///|
+test "inactive_files are deduplicated and sorted" {
+  let inactive = [
+    mk_mutation("z.mbt", 0, 1, "+", "-"),
+    mk_mutation("a.mbt", 0, 1, "+", "-"),
+    mk_mutation("z.mbt", 4, 5, "<", ">"),
+  ]
+  let report = build_report(
+    "m",
+    None,
+    0L,
+    0L,
+    0L,
+    "module",
+    [],
+    [],
+    Map([]),
+    100.0,
+    inactive~,
+  )
+  json_inspect(report.inactive_files, content=["a.mbt", "z.mbt"])
+  inspect(report.inactive_mutants, content="3")
 }
 
 ///|

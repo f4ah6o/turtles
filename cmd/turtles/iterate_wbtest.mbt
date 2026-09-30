@@ -49,7 +49,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
   current["a.mbt"] = "hash-a"
   let m = mk_mutation("a.mbt", 0, 1, "+", "-")
   let prior = mk_prior(
-    2,
+    3,
     Some(turtles_version),
     Some("moon x"),
     "hash-a",
@@ -83,7 +83,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
   )
   // Survived and Timeout never reuse.
   let prior_survived = mk_prior(
-    2,
+    3,
     Some(turtles_version),
     Some("moon x"),
     "hash-a",
@@ -95,7 +95,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     true,
   )
   let prior_timeout = mk_prior(
-    2,
+    3,
     Some(turtles_version),
     Some("moon x"),
     "hash-a",
@@ -106,22 +106,24 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     prior_reusable_outcome(prior_timeout, m, current, Some("moon x")) is None,
     true,
   )
-  // Schema 1 reports never reuse.
-  let old = mk_prior(
-    1,
-    Some(turtles_version),
-    Some("moon x"),
-    "hash-a",
-    Killed,
-    None,
-  )
-  assert_eq(
-    prior_reusable_outcome(old, m, current, Some("moon x")) is None,
-    true,
-  )
+  // Schema 1 and 2 reports never reuse after the schema-3 bump.
+  for old_schema in [1, 2] {
+    let old = mk_prior(
+      old_schema,
+      Some(turtles_version),
+      Some("moon x"),
+      "hash-a",
+      Killed,
+      None,
+    )
+    assert_eq(
+      prior_reusable_outcome(old, m, current, Some("moon x")) is None,
+      true,
+    )
+  }
   // turtles or moon version drift disables reuse.
   let other_turtles = mk_prior(
-    2,
+    3,
     Some("0.0.0"),
     Some("moon x"),
     "hash-a",
@@ -133,7 +135,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     true,
   )
   let other_moon = mk_prior(
-    2,
+    3,
     Some(turtles_version),
     Some("moon y"),
     "hash-a",
@@ -152,7 +154,7 @@ test "iterate refuses reuse when file content changed" {
   current["a.mbt"] = "new-hash"
   let m = mk_mutation("a.mbt", 0, 1, "+", "-")
   let prior = mk_prior(
-    2,
+    3,
     Some(turtles_version),
     Some("moon x"),
     "old-hash",
@@ -207,7 +209,7 @@ async test "iterate round-trips killed_by attribution from a prior report" {
       .to_json()
       .stringify()
     let mutant_json = "{\"path\":\"a.mbt\",\"offset\":0,\"end\":1,\"group\":\"arithmetic\",\"original\":\"+\",\"replacement\":\"-\",\"outcome\":\"KILLED\",\"line\":1,\"column\":1,\"killed_by\":\{kills_json}}"
-    let report = "{\"schema\":2,\"turtles_version\":\"\{turtles_version}\",\"moon_version\":\"moon x\",\"files\":{\"a.mbt\":\"hash-a\"},\"mutants\":[\{mutant_json}]}"
+    let report = "{\"schema\":3,\"turtles_version\":\"\{turtles_version}\",\"moon_version\":\"moon x\",\"files\":{\"a.mbt\":\"hash-a\"},\"mutants\":[\{mutant_json}]}"
     @fs.write_file(path_join(temp, "report.json"), report)
     guard load_prior_report(path_join(temp, "report.json")) is Some(prior) else {
       fail("expected prior report to load")
@@ -228,7 +230,7 @@ async test "iterate round-trips killed_by attribution from a prior report" {
     }
     // A prior row without killed_by still degrades to "unavailable".
     let bare_json = "{\"path\":\"a.mbt\",\"offset\":0,\"end\":1,\"group\":\"arithmetic\",\"original\":\"+\",\"replacement\":\"-\",\"outcome\":\"KILLED\",\"line\":1,\"column\":1}"
-    let bare_report = "{\"schema\":2,\"turtles_version\":\"\{turtles_version}\",\"moon_version\":\"moon x\",\"files\":{\"a.mbt\":\"hash-a\"},\"mutants\":[\{bare_json}]}"
+    let bare_report = "{\"schema\":3,\"turtles_version\":\"\{turtles_version}\",\"moon_version\":\"moon x\",\"files\":{\"a.mbt\":\"hash-a\"},\"mutants\":[\{bare_json}]}"
     @fs.write_file(path_join(temp, "report.json"), bare_report)
     guard load_prior_report(path_join(temp, "report.json")) is Some(bare) else {
       fail("expected prior report to load")

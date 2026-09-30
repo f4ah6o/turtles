@@ -52,9 +52,10 @@ Every mutant runs in its own temporary workspace; on a small module the whole ru
 turtles --dir .                    # run all discovered mutants
 turtles --dir . --list             # preview mutations without running tests
 turtles --dir . --file src/parser  # only mutate paths containing TEXT
-turtles --dir . --target native     # use moon check/test --target native
+turtles --dir . --target native     # run only what moon compiles for native
+turtles --dir . --target js --list  # preview the js-active mutation set
 turtles --dir . --timeout 120      # per-command timeout in seconds (default 60)
-turtles --dir . --json report.json # machine-readable report (schema 2)
+turtles --dir . --json report.json # machine-readable report (schema 3)
 turtles --dir . --iterate          # reuse KILLED/UNVIABLE outcomes from the last run
 turtles --dir . --affected         # run only tests that can observe each mutant
 turtles --dir . --emit-regressions # write regression-test templates for property kills
@@ -69,7 +70,7 @@ turtles --dir . --jobs 4
 
 `--jobs N` runs up to `N` mutants concurrently (validated as a positive integer; default `1`). Each worker gets a persistent `worker-N` workspace with a warm `_build`, restored to its snapshot after every mutant, and the baseline `moon check` + `moon test` runs exactly once before any mutant. Results and the JSON report are always ordered by discovery order, not completion order — parallelism never makes reports flaky.
 
-`--target` passes the selected MoonBit backend to the baseline, mutant checks and tests, and the `--affected` test plan. Choose it for modules whose tests exist only on a specific backend (for example `turtles --dir . --target native --file src/duckdb_capabilities.mbt`). The report records the target, and `--iterate` never reuses verdicts from another target.
+`--target` passes the selected MoonBit backend to the baseline, mutant checks and tests, the `--affected` test plan, and mutant selection itself. Moon's own `moon test --dry-run` plan decides which source files compile for the backend — mutants in files it does not select are reported **target-inactive**: visible in the console and report, never classified (so they can never inflate the survivor set), and excluded from the score. `--target all` unions Moon's standard backends, `--target js --list` previews exactly what a js run would classify, and any non-empty target value is forwarded for moon to validate — turtles keeps no backend list. The report records the target, and `--iterate` never reuses verdicts from another target.
 
 Note that `moon` itself already parallelizes a single build; `--jobs` parallelizes *across mutants*, so values above ~2× your CPU count only add contention.
 
@@ -102,6 +103,7 @@ score = killed / viable * 100     where viable = killed + survived + timeout
 ```
 
 - `UNVIABLE` mutants (which fail `moon check`) are excluded from the score entirely.
+- Target-inactive mutants (files the selected `--target` does not compile) are excluded too — they are never classified.
 - `TIMEOUT` mutants count as *not killed* — a mutant that makes your tests hang drags the score down instead of being silently forgiven.
 - An empty mutation set scores `100`.
 
@@ -125,14 +127,17 @@ Outcome classification:
 
 After the summary counts, every `SURVIVED`/`TIMEOUT` mutant is reprinted under `Mutants needing attention:` so the actionable list is at the end of the output.
 
-Every run writes a schema-`2` report and per-survivor unified diffs to `<dir>/.turtles/` (which git-ignores itself): `report.json` plus `survivors/<id>.diff` for each surviving or timed-out mutant. The report adds stable mutant `id`s (FNV-1a over path + byte offsets + original + replacement + group), per-phase baseline durations (`baseline_check_ms`/`baseline_test_ms`), `test_scope`, a `files` fingerprint map, `skipped_files`, and `reused` counts:
+Every run writes a schema-`3` report and per-survivor unified diffs to `<dir>/.turtles/` (which git-ignores itself): `report.json` plus `survivors/<id>.diff` for each surviving or timed-out mutant. The report adds stable mutant `id`s (FNV-1a over path + byte offsets + original + replacement + group), per-phase baseline durations (`baseline_check_ms`/`baseline_test_ms`), `test_scope`, a `files` fingerprint map, `skipped_files`, `reused` counts, the selected `target` (`null` when `--target` is omitted), and `inactive_mutants`/`inactive_files` for mutants Moon does not compile under that target:
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "module": "/abs/path",
   "turtles_version": "0.3.0",
   "moon_version": "moon 0.1.20260920 (914d7da 2026-09-20) ~/.moon/bin/moon",
+  "target": "native",
+  "inactive_mutants": 1,
+  "inactive_files": ["js_only.mbt"],
   "baseline_duration_ms": "216",
   "baseline_check_ms": "70",
   "baseline_test_ms": "146",
@@ -148,7 +153,7 @@ Every run writes a schema-`2` report and per-survivor unified diffs to `<dir>/.t
 }
 ```
 
-`--output-dir <path>` relocates the report directory; `--json` additionally writes a plain report anywhere for CI. `--iterate` loads the previous `<output-dir>/report.json` and reuses `KILLED`/`UNVIABLE` outcomes for mutants whose file content hash and identity tuple are unchanged (marked `"reused": true`); `SURVIVED`/`TIMEOUT` mutants always re-run. Reuse is refused wholesale when the schema, turtles version, or moon version differ. `--affected` is opt-in test selection: it parses `moon test --dry-run` to learn the package graph and runs `moon test -p` on just the mutated package plus packages whose test targets transitively link it, falling back to a module-wide run whenever resolution is uncertain. An empty mutation set still produces a schema-2 report with `mutants: []`; `--list` never runs tests.
+`--output-dir <path>` relocates the report directory; `--json` additionally writes a plain report anywhere for CI. `--iterate` loads the previous `<output-dir>/report.json` and reuses `KILLED`/`UNVIABLE` outcomes for mutants whose file content hash and identity tuple are unchanged (marked `"reused": true`); `SURVIVED`/`TIMEOUT` mutants always re-run. Reuse is refused wholesale when the schema, turtles version, moon version, or selected target differ. `--affected` is opt-in test selection: it parses `moon test --dry-run` to learn the package graph and runs `moon test -p` on just the mutated package plus packages whose test targets transitively link it, falling back to a module-wide run whenever resolution is uncertain. Under an explicit `--target` that same target-aware dry-run is what marks inactive mutants, so selection and test planning can never disagree. An empty mutation set still produces a schema-3 report with `mutants: []`; `--list` never runs tests.
 
 ## Kill attribution and determinism
 
@@ -238,7 +243,7 @@ moon -C fixtures/basic test
 moon run cmd/turtles -- --dir fixtures/basic --timeout 30
 ```
 
-The real fixture E2E also validates schema-2 JSON report generation, deterministic ordering under `--jobs`, and `--fail-under` exit codes.
+The real fixture E2E also validates schema-3 JSON report generation, deterministic ordering under `--jobs`, `--fail-under` exit codes, and target-aware selection on `fixtures/targets` (`--target native|js|all` for `--list` and full runs, including cross-target `--iterate` reuse refusal).
 
 ## Planned follow-ups
 

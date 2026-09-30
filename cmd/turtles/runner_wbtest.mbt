@@ -39,7 +39,7 @@ async test "mutant ordering does not change classifications" {
       [],
     )
     inspect(mutations.length(), content="2")
-    let (_, _, _, forward, _) = run_mutations(
+    let (_, _, _, forward, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -52,7 +52,7 @@ async test "mutant ordering does not change classifications" {
     for i = mutations.length() - 1; i >= 0; i = i - 1 {
       reversed.push(mutations[i])
     }
-    let (_, _, _, backward, _) = run_mutations(
+    let (_, _, _, backward, _, _) = run_mutations(
       module_dir,
       reversed,
       120000,
@@ -101,7 +101,7 @@ async test "native target selects native-only tests for classification" {
       [],
       [],
     )
-    let (_, _, _, results, _) = run_mutations(
+    let (_, _, _, results, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -135,7 +135,7 @@ async test "reported durations never exceed the wall clock" {
       [],
     )
     let started = @async.now()
-    let (baseline_duration_ms, _, _, results, _) = run_mutations(
+    let (baseline_duration_ms, _, _, results, _, _) = run_mutations(
       module_dir,
       mutations,
       120000,
@@ -297,6 +297,109 @@ async test "a failing mutant run fails the pool" {
       _ => raised = true
     }
     assert_true(raised)
+  })
+}
+
+///|
+test "moon_args forwards the target flag once, verbatim" {
+  assert_eq(moon_args(["check"], Some("native")), [
+    "check", "--target", "native",
+  ])
+  assert_eq(moon_args(["test", "--dry-run"], Some("all")), [
+    "test", "--dry-run", "--target", "all",
+  ])
+  assert_eq(moon_args(["check"], None), ["check"])
+}
+
+///|
+/// Mutants in files Moon does not compile for the target are partitioned
+/// out before classification — they can never land in the survivor set.
+async test "target-inactive mutants are partitioned out of classification" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    @fs.write_file(
+      path_join(module_dir, "moon.mod"),
+      "name = \"turtles_partition_fixture\"\nversion = \"0.1.0\"\n",
+    )
+    @fs.write_file(
+      path_join(module_dir, "moon.pkg"),
+      "options(targets: { \"pick.mbt\": [\"js\"], \"pick_test.mbt\": [\"js\"] })\n",
+    )
+    @fs.write_file(
+      path_join(module_dir, "order.mbt"),
+      "pub fn add(a : Int, b : Int) -> Int {\n  a + b\n}\n",
+    )
+    @fs.write_file(
+      path_join(module_dir, "pick.mbt"),
+      "pub fn pick(a : Int, b : Int) -> Bool {\n  a < b\n}\n",
+    )
+    @fs.write_file(
+      path_join(module_dir, "order_test.mbt"),
+      "test \"add\" { inspect(add(1, 2), content=\"3\") }\n",
+    )
+    @fs.write_file(
+      path_join(module_dir, "pick_test.mbt"),
+      "test \"pick\" { inspect(pick(1, 2), content=\"true\") }\n",
+    )
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+      [],
+      [],
+    )
+    inspect(mutations.length(), content="2")
+    let (_, _, _, results, inactive, _) = run_mutations(
+      module_dir,
+      mutations,
+      120000,
+      None,
+      1,
+      false,
+      Array::make(mutations.length(), None),
+      target=Some("native"),
+    )
+    // The native-active `+` mutant was classified; the js-only `<` was not.
+    inspect(results.length(), content="1")
+    json_inspect(results.map(result => result.mutation.path), content=[
+      "order.mbt",
+    ])
+    json_inspect(inactive.map(mutation => mutation.path), content=["pick.mbt"])
+  })
+}
+
+///|
+/// --affected under an explicit target consumes the same target-aware
+/// dry-run that produced the active-source set.
+async test "affected plan retains the selected target" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    write_order_fixture(module_dir)
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+      [],
+      [],
+    )
+    let (_, _, _, results, _, scope) = run_mutations(
+      module_dir,
+      mutations,
+      120000,
+      None,
+      1,
+      true,
+      Array::make(mutations.length(), None),
+      target=Some("native"),
+    )
+    inspect(scope, content="affected")
+    inspect(results.length(), content="2")
   })
 }
 

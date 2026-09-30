@@ -1,6 +1,6 @@
 # Target-aware mutation testing for multi-backend MoonBit modules
 
-- Status: open (2026-09-30)
+- Status: done (2026-09-30) — P0 implemented; see "Completion record"
 - Origin: `f4ah6o/duckdb.mbt` dogfood review (2026-09-30), turtles baseline `598820c1`
 - Affected area: `cmd/turtles/` (config, runner, plan, report, iterate, main), `fixtures/`, `README.md`
 - Primary dogfood target: `f4ah6o/duckdb.mbt`
@@ -432,6 +432,83 @@ turtles --dir . --target native --list
 turtles --dir . --target js --list
 turtles --dir . --target all --list
 ```
+
+## Completion record
+
+Implemented on top of PR #24 (which already provided `--target` parsing,
+propagation to check/test/`--affected`, `target` in the report, and
+cross-target `--iterate` refusal).
+
+- **Moon-side target ownership**: removed turtles' backend whitelist —
+  any non-empty `--target` value forwards to moon, which validates it.
+  Repeating `--target` is an argument error. One `moon_args` helper
+  (runner.mbt) builds every moon argv, kept deliberately simple so the
+  PBT analyses can reuse the same forwarding.
+- **Active-source discovery**: `load_moon_plan` runs
+  `moon test --dry-run --target <T>` inside the pristine temporary
+  reference and returns `MoonPlan { active_sources, test_plan }` — one
+  dry run feeds both consumers. `active_sources` collects positional
+  `.mbt` inputs of `moonc build-package` lines only (leading positionals
+  stop at the first `-` flag, so `-doctest-only` values and flag
+  arguments never leak in), normalizes `./`, separators, and
+  in-module absolute paths to module-relative form, drops `_build`,
+  `.mooncakes`, `$MOON_HOME`, and anything escaping the module root, and
+  unions per-backend sets under `--target all`. Zero `build-package`
+  lines = plan not understood = exit 2 under an explicit `--target`;
+  an empty-but-understood set legitimately marks every mutant inactive.
+- **Target-inactive mutants**: partitioned before classification via
+  `partition_by_active_source` (keeps the `reuse` array index-aligned
+  with the active subsequence so iterate verdicts stay with their own
+  mutant). Inactive mutants appear in console (`Target: …`,
+  `target-inactive: <file>` lines) and report (`inactive_mutants`,
+  `inactive_files`, sorted+deduplicated), never reach `mutants`, never
+  become SURVIVED, never touch the score.
+- **`--list --target`**: builds the same pristine reference, runs only
+  the dry run (no baseline, no mutant tests), lists exactly what a run
+  would classify, and reports the inactive count + files.
+- **Report schema 3**: adds `inactive_mutants` and `inactive_files`;
+  `target` stays `null` when `--target` is absent. Schema-2 reports are
+  no longer reusable (iterate requires `schema == 3`).
+- **`--affected`**: consumes `moon_plan.test_plan` from the same
+  target-aware dry run; its fallback is `moon test --target <T>` because
+  the plan itself is built under `--target`.
+- **Fixture**: `fixtures/targets` — `common.mbt` (`+`), `native_only.mbt`
+  (`*`), `js_only.mbt` (`-`) with matching `inspect` tests and
+  `moon.pkg` `options(targets: {...})` file-level entries.
+- **PBT items deferred**: witness / suggestions / amplification are not
+  implemented here — they depend on PBT features that do not exist yet
+  (tracked in `issues/open/2026-09-29-pbt-survivor-analysis.md`). The
+  `moon_args` helper is the designated reuse point.
+
+### Verification
+
+- `moon check --target native --deny-warn`, `moon fmt --check`,
+  `moon test --target native` (165 tests), `moon -C fixtures/{basic,isolation,empty} test`,
+  `git diff --check` — all green.
+- New white-box coverage: `--target` arg parsing (missing / one /
+  repeated / empty / unknown-backend forwarded), `moon_args`
+  construction, `record_line` positional-source capture
+  (`-doctest-only` excluded), `normalize_plan_source` relative +
+  absolute + out-of-module cases, `--target all` union,
+  `partition_by_active_source` reuse alignment, runner-level inactive
+  partitioning on a js-gated fixture, `--affected` scope under
+  `--target`, schema-3 fields + sorted `inactive_files`, iterate schema
+  1+2 refusal, target-mismatch reuse refusal.
+- New fixture E2E (also in CI): `--target native --list` lists
+  common+native only, `--target js --list` lists common+js only,
+  `--target all --list` lists all three; a full `--target native` run
+  kills both actives, reports `inactive_mutants: 1`,
+  `inactive_files: ["js_only.mbt"]`, score 100; `--target js --iterate`
+  against the native output dir reuses `0/3` verdicts.
+- **Dogfood** on `f4ah6o/duckdb.mbt` (`turtles --dir . --target … --list`,
+  2031 discovered mutants): `--target native` lists 1558 active + 473
+  inactive across 7 files (`*_js.mbt`, `duckdb_unsupported.mbt`, the two
+  state-machine files); `--target js` lists 1525 + 506 inactive across
+  9 files (`*_native.mbt`, `pbt_compat.mbt`, `rss_native.mbt`, same
+  stragglers); `--target all` lists 1942 + 89 inactive across the 2
+  state-machine files only — the entries no emitted backend plan
+  compiles, exactly the unmatchable-condition case this issue calls
+  out. Inactive totals reconcile per target. duckdb.mbt untouched.
 
 ## Follow-up after P0
 

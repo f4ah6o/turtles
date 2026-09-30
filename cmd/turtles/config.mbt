@@ -12,7 +12,7 @@ fn print_help() -> Unit {
       #|
       #|Options:
       #|  -d, --dir <PATH>        MoonBit module directory (default: .)
-      #|      --target <TARGET>   MoonBit target for check and test (e.g. native)
+      #|      --target <TARGET>   Moon backend for check/test/planning (e.g. native, all)
       #|      --timeout <SECS>    Per-command timeout (default: 60)
       #|  -j, --jobs <N>          Run up to N mutants in parallel (default: 1)
       #|      --fail-under <PCT>  Exit 1 if the mutation score is below PCT (0-100)
@@ -74,11 +74,13 @@ fn parse_args(args : Array[String]) -> Config raise {
       }
       "--target" => {
         guard i + 1 < args.length() else { fail("--target requires a target") }
+        guard target is None else { fail("--target may only be given once") }
         i = i + 1
-        guard ["wasm", "wasm-gc", "js", "native", "llvm", "all"].contains(
-          args[i],
-        ) else {
-          fail("unsupported target: \{args[i]}")
+        // turtles keeps no backend list: moon owns target validity, so new
+        // backends work without a turtles release. Only the missing/empty
+        // value is an argument error here.
+        guard args[i] != "" else {
+          fail("--target requires a non-empty target")
         }
         target = Some(args[i])
       }

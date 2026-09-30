@@ -37,7 +37,7 @@ fn outcome_from_name(name : String) -> Outcome? {
 }
 
 ///|
-/// Read a schema-2 report for --iterate. Older or partial reports yield
+/// Read a schema-3 report for --iterate. Older or partial reports yield
 /// None rather than failing the run — reuse is an optimization, never
 /// required for correctness.
 async fn load_prior_report(path : String) -> PriorReport? {
@@ -145,7 +145,7 @@ fn prior_reusable_outcome(
   moon_version : String?,
   target? : String? = None,
 ) -> (Outcome, Array[Kill]?)? {
-  if prior.schema != 2 {
+  if prior.schema != 3 {
     return None
   }
   if prior.turtles_version != Some(turtles_version) {
