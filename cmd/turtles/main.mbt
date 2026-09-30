@@ -60,35 +60,40 @@ async fn iterate_reuse(
   let reuse : Array[MutationResult?] = Array::make(mutations.length(), None)
   let report_path = path_join(output_dir, "report.json")
   match load_prior_report(report_path) {
-    Some(prior) => {
-      let mut matched = 0
-      for i = 0; i < mutations.length(); i = i + 1 {
-        match
-          prior_reusable_outcome(
-            prior,
-            mutations[i],
-            files,
-            moon_version,
-            target~,
-          ) {
-          Some((outcome, kills)) => {
-            reuse[i] = Some({
-              mutation: mutations[i],
-              outcome,
-              duration_ms: 0L,
-              reused: true,
-              packages: None,
-              kills,
-            })
-            matched = matched + 1
+    Some(prior) =>
+      if !fingerprints_match(prior.files, files) {
+        println(
+          "Iterate: source/test/manifest fingerprints changed since \{report_path}; running fresh",
+        )
+      } else {
+        let mut matched = 0
+        for i = 0; i < mutations.length(); i = i + 1 {
+          match
+            prior_reusable_outcome(
+              prior,
+              mutations[i],
+              files,
+              moon_version,
+              target~,
+            ) {
+            Some((outcome, kills)) => {
+              reuse[i] = Some({
+                mutation: mutations[i],
+                outcome,
+                duration_ms: 0L,
+                reused: true,
+                packages: None,
+                kills,
+              })
+              matched = matched + 1
+            }
+            None => ()
           }
-          None => ()
         }
+        println(
+          "Iterate: reusing \{matched}/\{mutations.length()} verdicts from \{report_path}",
+        )
       }
-      println(
-        "Iterate: reusing \{matched}/\{mutations.length()} verdicts from \{report_path}",
-      )
-    }
     None =>
       println("Iterate: no reusable report at \{report_path}; running fresh")
   }

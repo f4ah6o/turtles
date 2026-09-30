@@ -168,6 +168,57 @@ test "iterate refuses reuse when file content changed" {
 }
 
 ///|
+test "iterate refuses reuse when an unmutated fingerprint file changed" {
+  // The mutated file is byte-identical in both runs; a test file and
+  // moon.pkg drift instead — a verdict may owe its outcome to those,
+  // so no row may be reused.
+  let m = mk_mutation("a.mbt", 0, 1, "+", "-")
+  let prior = {
+    ..mk_prior(3, Some(turtles_version), Some("moon x"), "hash-a", Killed, None),
+    files: {
+      "a.mbt": "hash-a",
+      "b_test.mbt": "hash-test",
+      "moon.pkg": "hash-pkg",
+    },
+  }
+  let changed_test : Map[String, String] = {
+    "a.mbt": "hash-a",
+    "b_test.mbt": "hash-test-drifted",
+    "moon.pkg": "hash-pkg",
+  }
+  assert_true(
+    prior_reusable_outcome(prior, m, changed_test, Some("moon x")) is None,
+  )
+  let changed_manifest : Map[String, String] = {
+    "a.mbt": "hash-a",
+    "b_test.mbt": "hash-test",
+    "moon.pkg": "hash-pkg-drifted",
+  }
+  assert_true(
+    prior_reusable_outcome(prior, m, changed_manifest, Some("moon x")) is None,
+  )
+  let added_file : Map[String, String] = {
+    "a.mbt": "hash-a",
+    "b_test.mbt": "hash-test",
+    "moon.pkg": "hash-pkg",
+    "new.mbt": "hash-new",
+  }
+  assert_true(
+    prior_reusable_outcome(prior, m, added_file, Some("moon x")) is None,
+  )
+  // An identical fingerprint set still reuses.
+  let unchanged : Map[String, String] = {
+    "a.mbt": "hash-a",
+    "b_test.mbt": "hash-test",
+    "moon.pkg": "hash-pkg",
+  }
+  assert_true(
+    prior_reusable_outcome(prior, m, unchanged, Some("moon x"))
+    is Some((Killed, None)),
+  )
+}
+
+///|
 test "identity is content-anchored, not line-anchored" {
   // Same span+texts, different recorded line -> same identity.
   let m1 = mk_mutation("a.mbt", 10, 11, "+", "-")

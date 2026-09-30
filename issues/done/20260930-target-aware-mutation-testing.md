@@ -469,6 +469,12 @@ cross-target `--iterate` refusal).
 - **Report schema 3**: adds `inactive_mutants` and `inactive_files`;
   `target` stays `null` when `--target` is absent. Schema-2 reports are
   no longer reusable (iterate requires `schema == 3`).
+- **`--iterate` fingerprint guard is global**: `prior.files` must equal
+  the current fingerprint map wholesale (`fingerprints_match` in
+  `iterate.mbt`, checked once in `iterate_reuse` and enforced per row in
+  `prior_reusable_outcome`). A changed test file, `moon.pkg` /
+  `moon.mod` / `turtles.toml`, or an added/removed source file refuses
+  every row — not just a change to the mutated file.
 - **`--affected`**: consumes `moon_plan.test_plan` from the same
   target-aware dry run; its fallback is `moon test --target <T>` because
   the plan itself is built under `--target`.
@@ -493,7 +499,8 @@ cross-target `--iterate` refusal).
   `partition_by_active_source` reuse alignment, runner-level inactive
   partitioning on a js-gated fixture, `--affected` scope under
   `--target`, schema-3 fields + sorted `inactive_files`, iterate schema
-  1+2 refusal, target-mismatch reuse refusal.
+  1+2 refusal, target-mismatch reuse refusal, unmutated-fingerprint-drift
+  reuse refusal (test file, `moon.pkg`, added file).
 - New fixture E2E (also in CI): `--target native --list` lists
   common+native only, `--target js --list` lists common+js only,
   `--target all --list` lists all three; a full `--target native` run
