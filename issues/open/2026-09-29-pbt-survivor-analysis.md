@@ -50,7 +50,8 @@ them and keeps the existing verdict and JSON semantics.
    generates no witness QuickCheck test or manifest import, and adds no
    `witness` / `witness_skipped` field. With the flag, for a surviving top-level function `f` with
    Arbitrary parameters and `Eq + Debug` result, generate inside the temporary
-   workspace the original body as `f__turtles_orig`, the mutated `f`, and a
+   workspace the original body as a collision-free helper `f__turtles_orig`
+   (see "Collision-safe generated identifiers"), the mutated `f`, and a
    white-box `@quickcheck.check(args => f(args) == f__turtles_orig(args))`.
    Each eligible survivor gets `witness`: the counterexample when falsified,
    or `none` ("possibly equivalent") within the budget. A falsified witness
@@ -115,6 +116,25 @@ them and keeps the existing verdict and JSON semantics.
      graph (no `witness` field, reason recorded, e.g.
      `witness_skipped: "recursive"`). Cloning the SCC with rewritten recursive
      references is a later extension.
+   - **Collision-safe generated identifiers.** A valid module may already
+     declare `<fn>__turtles_orig`, or any other helper/test name turtles picks;
+     a collision turns an otherwise eligible survivor into a harness compile
+     failure (UNVIABLE) instead of a witness result. Every identifier turtles
+     injects — the cloned-original helper and the generated test name — is
+     therefore chosen from a collision-free candidate set:
+     - the base name embeds the mutant id (for example
+       `<fn>__turtles_orig__mut0042` for the helper and
+       `turtles witness mut-0042 <fn>` for the test), which already makes
+       accidental collisions rare;
+     - before injecting, turtles collects the target package's top-level
+       symbol set from the parsed AST (the same pass that enumerates
+       functions) and rejects a candidate that is taken;
+     - on a taken candidate it retries with a numeric suffix
+       (`<fn>__turtles_orig__mut0042_1`, `_2`, …) until the name is free.
+     Collision handling never renames or edits user symbols: only turtles'
+     own generated identifiers change. If a bounded retry budget (e.g. 16)
+     finds no free name, the function gets `witness_skipped: "name-collision"`
+     rather than a broken harness.
 3. **Property amplification.** `--pbt-amplify <N>`: for survivors only, re-run
    the property tests with `max_success` × N and additional seeds by rewriting
    `quick_check*` / `check` arguments in the temporary workspace. A mutant killed
@@ -181,6 +201,7 @@ is given, all three analyses follow the same target semantics as the verdicts:
 - [ ] Without `--pbt-witness`, no witness test or manifest import is generated and no `witness` / `witness_skipped` field appears.
 - [ ] Witness runs compile in a fixture with no QuickCheck import, and the manifest is restored afterwards.
 - [ ] Recursive and mutually-recursive functions are excluded from witnesses with a recorded reason.
+- [ ] A fixture whose source already defines `<fn>__turtles_orig` still gets a witness result: the harness compiles without renaming the user's symbol (it retries its own identifier instead) and the survivor is not turned UNVIABLE.
 - [ ] `--pbt-amplify <N>` re-runs properties only for survivors and marks `amplified: true` kills.
 - [ ] Default runs (no new flags) produce identical verdicts and JSON on existing fixtures. "Additive" applies only to opt-in runs: the default JSON does not change.
 - [ ] Fixture E2E covers both a default run and runs with each of `--emit-properties`, `--pbt-witness` and `--pbt-amplify <N>`.
