@@ -228,6 +228,8 @@ test "parse_args reads jobs and fail-under" {
 test "parse_args selects a MoonBit target" {
   let config = parse_args(["turtles", "--target", "native"])
   debug_inspect(config.target, content="Some(\"native\")")
+  let all = parse_args(["turtles", "--target", "all"])
+  debug_inspect(all.target, content="Some(\"all\")")
   assert_true(parse_args_fails(["turtles", "--target"]))
   assert_true(parse_args_fails(["turtles", "--target", "invalid"]))
 }

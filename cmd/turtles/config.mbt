@@ -75,7 +75,9 @@ fn parse_args(args : Array[String]) -> Config raise {
       "--target" => {
         guard i + 1 < args.length() else { fail("--target requires a target") }
         i = i + 1
-        guard ["wasm", "wasm-gc", "js", "native", "llvm"].contains(args[i]) else {
+        guard ["wasm", "wasm-gc", "js", "native", "llvm", "all"].contains(
+          args[i],
+        ) else {
           fail("unsupported target: \{args[i]}")
         }
         target = Some(args[i])
