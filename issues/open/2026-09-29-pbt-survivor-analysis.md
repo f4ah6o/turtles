@@ -15,7 +15,12 @@ automatically, which cargo-mutants cannot do for Rust.
 
 ## Scope
 
-The design for each item is in the done record's P2 sections; summary:
+This issue is the **normative contract** for the P2 implementation. The P2
+sections of the done record are historical rationale / original design only;
+where the two differ, this issue wins.
+
+All three analyses are opt-in. A default run (no new flags) performs none of
+them and keeps the existing verdict and JSON semantics.
 
 1. **Survivor → property suggestions.** For survivors whose parameter and
    return types have `Arbitrary + Shrink + Debug` instances, write
@@ -23,12 +28,16 @@ The design for each item is in the done record's P2 sections; summary:
    (idempotence/involution for `(A) -> A`, commutativity/associativity for
    `(A, A) -> A`, round-trip for `encode`/`decode`-style pairs, otherwise a
    `@quickcheck.check` stub over the parameter tuple). Files only; user tests are
-   never edited. Opt-in flag, like `--emit-regressions`.
-2. **Differential witness.** For a surviving top-level function `f` with
+   never edited. Enabled only by `--emit-properties` (named like
+   `--emit-regressions`); without it no `properties/` files are written.
+2. **Differential witness.** Enabled only by `--pbt-witness` (named like
+   `--pbt-amplify`). Without the flag turtles runs no witness analysis,
+   generates no witness QuickCheck test or manifest import, and adds no
+   `witness` / `witness_skipped` field. With the flag, for a surviving top-level function `f` with
    Arbitrary parameters and `Eq + Debug` result, generate inside the temporary
    workspace the original body as `f__turtles_orig`, the mutated `f`, and a
    white-box `@quickcheck.check(args => f(args) == f__turtles_orig(args))`.
-   Additive field `witness`: the counterexample when falsified (observable
+   Each eligible survivor gets `witness`: the counterexample when falsified (observable
    mutant, real gap), or `none` ("possibly equivalent") within the budget.
    Requirements:
    - **Self-contained import.** The generated test must not assume the
@@ -48,7 +57,24 @@ The design for each item is in the done record's P2 sections; summary:
 3. **Property amplification.** `--pbt-amplify <N>`: for survivors only, re-run
    the property tests with `max_success` × N and additional seeds by rewriting
    `quick_check*` / `check` arguments in the temporary workspace. A mutant killed
-   only after amplification is `KILLED` with `amplified: true`.
+   only after amplification is `KILLED` with `amplified: true`. Without the
+   flag no re-run happens and no `amplified` field is written.
+
+## Target selection
+
+When `--target <TARGET>` (see `2026-09-30-target-aware-mutation-testing.md`)
+is given, all three analyses follow the same target semantics as the verdicts:
+
+- Every Moon invocation they make (witness runs, `--pbt-amplify` re-runs)
+  goes through the target-aware Moon command helper (`moon_args`), so the
+  current `--target` is always forwarded. No analysis builds its own
+  unqualified `moon test`. Without `--target`, the existing no-target
+  command lines are used.
+- Target-inactive mutants get no suggestion, witness or amplification.
+- `witness`, suggestions and `amplified: true` results belong to the same
+  target identity as the mutant's verdict, `killed_by` and counterexample.
+- `--iterate` never reuses a witness, suggestion or amplified verdict from a
+  prior report with a different target.
 
 ## Remaining gaps and open questions
 
@@ -63,18 +89,19 @@ The design for each item is in the done record's P2 sections; summary:
   real modules (`moonbitlang/x`, `f4ah6o/duckdb.mbt`)?
 - Should suggestions use the extended `moonbitlang/quickcheck` (`@laws`,
   FEAT), or stay core-only to avoid a dependency?
-- Target keying: witnesses and suggestions must be recorded per target; see
-  `2026-09-30-target-aware-mutation-testing.md`.
 
 ## Acceptance criteria
 
-- [ ] Opt-in property suggestion files for eligible survivors; no writes outside the output directory.
-- [ ] `witness` field on survivors of eligible functions; falsified and not-falsified cases covered on `fixtures/pbt`.
+- [ ] `--emit-properties` writes suggestion files for eligible survivors; no writes outside the output directory.
+- [ ] With `--pbt-witness`, eligible survivors get `witness` (or a `witness_skipped` reason); falsified and not-falsified cases covered on `fixtures/pbt`.
+- [ ] Without `--pbt-witness`, no witness test or manifest import is generated and no `witness` / `witness_skipped` field appears.
 - [ ] Witness runs compile in a fixture with no QuickCheck import, and the manifest is restored afterwards.
 - [ ] Recursive and mutually-recursive functions are excluded from witnesses with a recorded reason.
 - [ ] `--pbt-amplify <N>` re-runs properties only for survivors and marks `amplified: true` kills.
-- [ ] Default runs (no new flags) produce identical verdicts and JSON on existing fixtures; JSON changes additive only.
-- [ ] README documents the new flags and fields.
+- [ ] Default runs (no new flags) produce identical verdicts and JSON on existing fixtures. "Additive" applies only to opt-in runs: the default JSON does not change.
+- [ ] Fixture E2E covers both a default run and runs with each of `--emit-properties`, `--pbt-witness` and `--pbt-amplify <N>`.
+- [ ] With `--target`, witness / amplification runs forward the target and skip target-inactive mutants; `--iterate` does not reuse PBT analysis results across targets.
+- [ ] README documents `--emit-properties`, `--pbt-witness`, `--pbt-amplify` and the new fields.
 
 ## Verification plan
 
@@ -89,5 +116,6 @@ moon -C fixtures/empty test
 moon -C fixtures/pbt test
 moon -C fixtures/body test
 turtles --dir fixtures/pbt
+turtles --dir fixtures/pbt --emit-properties --pbt-witness --pbt-amplify 4
 turtles --dir .   # self-application
 ```

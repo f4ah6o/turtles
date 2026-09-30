@@ -265,6 +265,18 @@ verdicts: a prior report's `killed_by` is reused only when the target matches,
 and regression templates / counterexamples are recorded with the target that
 produced them.
 
+The planned opt-in PBT analyses (`--emit-properties`, `--pbt-witness`,
+`--pbt-amplify <N>`, specified in `2026-09-29-pbt-survivor-analysis.md`) follow
+the same rules:
+
+- their Moon invocations (witness runs, amplification re-runs) are built with
+  the same `moon_args` helper, so the current `--target` is always forwarded;
+  without `--target`, no-target semantics are unchanged
+- target-inactive mutants get no suggestion, witness or amplification
+- `amplified: true`, `witness` and suggestions belong to the same target as
+  the verdict, `killed_by` and counterexample they refine
+- `--iterate` does not reuse any of them across a target change
+
 ## Fixture design
 
 Add a small multi-target fixture, for example `fixtures/targets`, with:
@@ -310,6 +322,12 @@ turtles --dir fixtures/targets --target all --list
 
 Run native, then run js with `--iterate` against the same output directory. Zero native verdicts may be reused by the js run.
 
+### PBT analysis (once the PBT survivor-analysis issue is implemented)
+
+With `--target native --pbt-witness --pbt-amplify <N>`, js-only mutants get no
+witness or amplification, and every Moon command the analyses run carries
+`--target native`.
+
 ## duckdb.mbt dogfood acceptance
 
 After the fixture gates pass, validate against `f4ah6o/duckdb.mbt`.
@@ -338,6 +356,7 @@ The dogfood step should not modify `duckdb.mbt`; it validates turtles against a 
 - Target-inactive mutants are visible in console/reporting and excluded from score.
 - `--affected` and active-source discovery use the same target-aware plan.
 - `--iterate` cannot reuse across target changes.
+- PBT analyses (witness, suggestions, amplification) never cross the selected target boundary.
 - report schema is 3 and remains deterministic.
 - `--list --target ...` filters by target without running tests.
 - no-target invocation preserves current behavior and output semantics apart from the schema/version changes required by implementation.

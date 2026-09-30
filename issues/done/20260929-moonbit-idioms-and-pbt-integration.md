@@ -263,6 +263,11 @@ Probed with a scratch module (one property test, one snapshot test, a buggy `cla
 
 ### P2 — Survivor → property suggestions
 
+> Historical design. The normative P2 contract (opt-in flags, witness import,
+> recursion handling, target semantics) is
+> `../open/2026-09-29-pbt-survivor-analysis.md`; it takes precedence on any
+> conflict.
+
 - For survivors in functions whose parameter/return types have standard
   `Arbitrary + Shrink + Debug` instances, emit `<output>/properties/mut-XXXX.mbt`
   skeletons using signature shapes:
