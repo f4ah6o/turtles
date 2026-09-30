@@ -148,8 +148,10 @@ jobs:
               mutant["path"] in ("common.mbt", "native_only.mbt")
               for mutant in report["mutants"]
           )
-          assert report["summary"]["killed"] == len(report["mutants"])
-          assert report["summary"]["survived"] == 0
+          # common_keep/native_keep are intentional equivalent mutants that
+          # survive for the PBT analyses; the rest must be killed.
+          assert report["summary"]["killed"] == len(report["mutants"]) - 2
+          assert report["summary"]["survived"] == 2
           PY
           # A js run with --iterate against the same output dir must not
           # reuse a single native verdict: prior.target mismatches.
