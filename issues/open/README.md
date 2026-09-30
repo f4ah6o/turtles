@@ -5,6 +5,7 @@ This directory contains review findings that should remain actionable even if th
 Open tasks:
 
 - [Target-aware mutation testing for multi-backend MoonBit modules](2026-09-30-target-aware-mutation-testing.md)
+- [PBT survivor analysis: property suggestions, differential witness, amplification](2026-09-29-pbt-survivor-analysis.md)
 
 Completed task files live in [`../done/`](../done/).
 
