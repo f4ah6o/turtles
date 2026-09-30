@@ -4,6 +4,7 @@ struct PriorReport {
   schema : Int
   turtles_version : String?
   moon_version : String?
+  target : String?
   files : Map[String, String]
   mutants : Map[String, (Mutation, Outcome, Array[Kill]?)]
 }
@@ -74,6 +75,7 @@ async fn load_prior_report(path : String) -> PriorReport? {
     schema,
     turtles_version: json_field_string(top, "turtles_version"),
     moon_version: json_field_string(top, "moon_version"),
+    target: json_field_string(top, "target"),
     files,
     mutants,
   })
@@ -141,6 +143,7 @@ fn prior_reusable_outcome(
   mutation : Mutation,
   current_files : Map[String, String],
   moon_version : String?,
+  target? : String? = None,
 ) -> (Outcome, Array[Kill]?)? {
   if prior.schema != 2 {
     return None
@@ -149,6 +152,9 @@ fn prior_reusable_outcome(
     return None
   }
   if prior.moon_version != moon_version {
+    return None
+  }
+  if prior.target != target {
     return None
   }
   guard prior.files.get(mutation.path) is Some(recorded_hash) &&

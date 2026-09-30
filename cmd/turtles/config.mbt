@@ -12,6 +12,7 @@ fn print_help() -> Unit {
       #|
       #|Options:
       #|  -d, --dir <PATH>        MoonBit module directory (default: .)
+      #|      --target <TARGET>   MoonBit target for check and test (e.g. native)
       #|      --timeout <SECS>    Per-command timeout (default: 60)
       #|  -j, --jobs <N>          Run up to N mutants in parallel (default: 1)
       #|      --fail-under <PCT>  Exit 1 if the mutation score is below PCT (0-100)
@@ -34,6 +35,7 @@ fn print_help() -> Unit {
 ///|
 fn parse_args(args : Array[String]) -> Config raise {
   let mut dir = "."
+  let mut target : String? = None
   let mut timeout_ms = 60000
   let mut jobs = 1
   let mut fail_under : Double? = None
@@ -69,6 +71,14 @@ fn parse_args(args : Array[String]) -> Config raise {
         guard i + 1 < args.length() else { fail("--dir requires a path") }
         i = i + 1
         dir = args[i]
+      }
+      "--target" => {
+        guard i + 1 < args.length() else { fail("--target requires a target") }
+        i = i + 1
+        guard ["wasm", "wasm-gc", "js", "native", "llvm"].contains(args[i]) else {
+          fail("unsupported target: \{args[i]}")
+        }
+        target = Some(args[i])
       }
       "--timeout" => {
         guard i + 1 < args.length() else { fail("--timeout requires seconds") }
@@ -152,6 +162,7 @@ fn parse_args(args : Array[String]) -> Config raise {
   }
   {
     dir,
+    target,
     timeout_ms,
     jobs,
     fail_under,

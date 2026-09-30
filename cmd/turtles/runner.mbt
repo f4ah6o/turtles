@@ -4,7 +4,16 @@ async fn run_moon_command(
   args : Array[String],
   timeout_ms : Int,
   group_kill : Bool,
+  target? : String? = None,
 ) -> CommandResult {
+  let command_args = args.copy()
+  match target {
+    Some(selected) => {
+      command_args.push("--target")
+      command_args.push(selected)
+    }
+    None => ()
+  }
   // Nested moon output must not reach our own stdout: when turtles runs
   // inside `moon test`, subprocess output interleaves with the test driver
   // protocol and corrupts result parsing. The log lives next to the
@@ -18,7 +27,7 @@ async fn run_moon_command(
     // remains as a belt around `timeout` itself.
     let secs = timeout_ms.to_double() / 1000.0
     let wrapped = ["--signal=KILL", secs.to_string(), "moon"]
-    for arg in args {
+    for arg in command_args {
       wrapped.push(arg)
     }
     let exit_code = @async.with_timeout_opt(timeout_ms + 5000, () => {
@@ -33,7 +42,7 @@ async fn run_moon_command(
   let exit_code = @async.with_timeout_opt(timeout_ms, () => {
     @process.run(
       "moon",
-      args,
+      command_args,
       cwd=root,
       stdout=output,
       stderr=output,
@@ -55,8 +64,10 @@ async fn classify_mutant(
   test_timeout_ms : Int,
   plan : TestPlan?,
   group_kill : Bool,
+  target? : String? = None,
 ) -> (Outcome, Array[String]?, Array[Kill]?) {
-  match run_moon_command(root, ["check"], check_timeout_ms, group_kill) {
+  match
+    run_moon_command(root, ["check"], check_timeout_ms, group_kill, target~) {
     CommandFailure => return (Unviable, None, None)
     CommandTimeout => return (Timeout, None, None)
     CommandSuccess => ()
@@ -66,7 +77,7 @@ async fn classify_mutant(
     None => None
   }
   let args = mutant_test_args(packages)
-  match run_moon_command(root, args, test_timeout_ms, group_kill) {
+  match run_moon_command(root, args, test_timeout_ms, group_kill, target~) {
     CommandSuccess => (Survived, packages, None)
     CommandFailure => (Killed, packages, last_test_failures(root))
     CommandTimeout => (Timeout, packages, None)
@@ -84,9 +95,11 @@ async fn validate_workspace(
   reference : String,
   timeout_ms : Int,
   group_kill : Bool,
+  target? : String? = None,
 ) -> (Int64, Int64) {
   let check_started = @async.now()
-  match run_moon_command(workspace, ["check"], timeout_ms, group_kill) {
+  match
+    run_moon_command(workspace, ["check"], timeout_ms, group_kill, target~) {
     CommandSuccess => ()
     CommandFailure =>
       fail(
@@ -96,7 +109,13 @@ async fn validate_workspace(
       fail("temporary workspace validation timed out during `moon check`")
   }
   let check_ms = @async.now() - check_started
-  let test_ms = baseline_test_run(workspace, reference, timeout_ms, group_kill)
+  let test_ms = baseline_test_run(
+    workspace,
+    reference,
+    timeout_ms,
+    group_kill,
+    target~,
+  )
   (check_ms, test_ms)
 }
 
@@ -113,11 +132,18 @@ async fn baseline_test_run(
   reference : String,
   timeout_ms : Int,
   group_kill : Bool,
+  target? : String? = None,
 ) -> Int64 {
   let test_args = mutant_test_args(None)
   let manifest = snapshot_workspace(workspace)
   let first_started = @async.now()
-  let first = run_moon_command(workspace, test_args, timeout_ms, group_kill)
+  let first = run_moon_command(
+    workspace,
+    test_args,
+    timeout_ms,
+    group_kill,
+    target~,
+  )
   let first_ms = @async.now() - first_started
   match first {
     CommandTimeout =>
@@ -129,7 +155,13 @@ async fn baseline_test_run(
     _ => ()
   }
   let second_started = @async.now()
-  let second = run_moon_command(workspace, test_args, timeout_ms, group_kill)
+  let second = run_moon_command(
+    workspace,
+    test_args,
+    timeout_ms,
+    group_kill,
+    target~,
+  )
   let second_ms = @async.now() - second_started
   match second {
     CommandTimeout =>
@@ -369,6 +401,7 @@ async fn run_mutations(
   jobs : Int,
   affected : Bool,
   reuse : Array[MutationResult?],
+  target? : String? = None,
 ) -> (Int64, Int64, Int64, Array[MutationResult], String) {
   let root = @fs.realpath(root)
   let temp = @fs.tmpdir(prefix="turtles")
@@ -397,6 +430,7 @@ async fn run_mutations(
       reference,
       timeout_ms * 10,
       group_kill,
+      target~,
     )
     let baseline_duration_ms = @async.now() - started
     println("Baseline: ok")
@@ -411,7 +445,7 @@ async fn run_mutations(
       None => ()
     }
     let plan : TestPlan? = if affected {
-      Some(load_test_plan(reference)) catch {
+      Some(load_test_plan(reference, target~)) catch {
         error => {
           println(
             "warning: --affected disabled; cannot read test plan: \{error}",
@@ -424,7 +458,13 @@ async fn run_mutations(
     }
     let classify = (workspace : String, mutation : Mutation) => {
       classify_mutant(
-        workspace, mutation, check_timeout_ms, test_timeout_ms, plan, group_kill,
+        workspace,
+        mutation,
+        check_timeout_ms,
+        test_timeout_ms,
+        plan,
+        group_kill,
+        target~,
       )
     }
     let results = run_mutation_pool(

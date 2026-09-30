@@ -52,6 +52,7 @@ Every mutant runs in its own temporary workspace; on a small module the whole ru
 turtles --dir .                    # run all discovered mutants
 turtles --dir . --list             # preview mutations without running tests
 turtles --dir . --file src/parser  # only mutate paths containing TEXT
+turtles --dir . --target native     # use moon check/test --target native
 turtles --dir . --timeout 120      # per-command timeout in seconds (default 60)
 turtles --dir . --json report.json # machine-readable report (schema 2)
 turtles --dir . --iterate          # reuse KILLED/UNVIABLE outcomes from the last run
@@ -67,6 +68,8 @@ turtles --dir . --jobs 4
 ```
 
 `--jobs N` runs up to `N` mutants concurrently (validated as a positive integer; default `1`). Each worker gets a persistent `worker-N` workspace with a warm `_build`, restored to its snapshot after every mutant, and the baseline `moon check` + `moon test` runs exactly once before any mutant. Results and the JSON report are always ordered by discovery order, not completion order — parallelism never makes reports flaky.
+
+`--target` passes the selected MoonBit backend to the baseline, mutant checks and tests, and the `--affected` test plan. Choose it for modules whose tests exist only on a specific backend (for example `turtles --dir . --target native --file src/duckdb_capabilities.mbt`). The report records the target, and `--iterate` never reuses verdicts from another target.
 
 Note that `moon` itself already parallelizes a single build; `--jobs` parallelizes *across mutants*, so values above ~2× your CPU count only add contention.
 

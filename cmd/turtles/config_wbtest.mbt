@@ -164,6 +164,7 @@ fn parse_args_fails(args : Array[String]) -> Bool {
 test "parse_args defaults" {
   let config = parse_args(["turtles"])
   inspect(config.dir, content=".")
+  inspect(config.target is None, content="true")
   inspect(config.timeout_ms, content="60000")
   inspect(config.jobs, content="1")
   inspect(config.fail_under is None, content="true")
@@ -221,6 +222,14 @@ test "parse_args reads jobs and fail-under" {
   inspect(zero.fail_under.unwrap_or(-1.0), content="0")
   let hundred = parse_args(["turtles", "--fail-under", "100"])
   inspect(hundred.fail_under.unwrap_or(-1.0), content="100")
+}
+
+///|
+test "parse_args selects a MoonBit target" {
+  let config = parse_args(["turtles", "--target", "native"])
+  debug_inspect(config.target, content="Some(\"native\")")
+  assert_true(parse_args_fails(["turtles", "--target"]))
+  assert_true(parse_args_fails(["turtles", "--target", "invalid"]))
 }
 
 ///|
