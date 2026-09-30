@@ -1,0 +1,85 @@
+# turtles' own verification harness
+
+turtles verifies itself with the same machinery it applies to other projects,
+plus property-based tests and an end-to-end binary check:
+
+1. **Unit tests** (`*_wbtest.mbt`) — deterministic behavior checks.
+2. **Official QuickCheck PBT** (`*_pbt_wbtest.mbt`) —
+   `moonbitlang/core/quickcheck` `@quickcheck.check` properties over pure
+   invariants: fingerprints and identity tuples, kill attribution, regression
+   templates, UTF-8 boundary construction, mutation application, mutation
+   discovery, path filtering, and config round-tripping. The property suite is
+   imported `for "wbtest"` only, so production builds never depend on it.
+3. **Mutation testing** — turtles runs itself (see *Self-mutation* below).
+4. **`scripts/self_e2e.sh`** — black-box check of the built binary's JSON
+   report (see *Binary e2e* below).
+
+## Self-mutation
+
+The root `turtles.toml` is the checked-in self-verification config:
+
+```toml
+include = ["cmd/turtles/"]
+```
+
+Run it with a generous per-command timeout (each mutant pays a `moon check`
+plus `moon test` of the whole module, including the property suite):
+
+```sh
+moon run cmd/turtles -- --dir . --timeout 300 --json target/turtles-self.json
+```
+
+`--jobs <n>` parallelizes across warm per-worker workspaces, and `--iterate`
+reuses KILLED/UNVIABLE verdicts from a previous `.turtles/report.json` so
+repeated self-runs stay cheap.
+
+CI bounds the dogfood to `cmd/turtles/fingerprint.mbt` — a small file whose
+three mutants are deterministic kills — so the gate stays fast while still
+exercising the full pipeline: discovery, workspace copy, baseline, per-mutant
+check + test, outcome attribution, and the JSON report.
+
+### Survivors and the baseline
+
+Expect some self-mutants to survive; that is the point of the exercise. When
+triaging a self-run survivor, classify it rather than weakening operators or
+hiding production files to reach green:
+
+- **Equivalent mutant** — e.g. flipping an empty-input guard such as
+  `if mutations.is_empty()`: the `cond → false` form only differs for modules
+  without mutations, which the fixture sweep never produces. Document
+  confirmed-equivalent survivors here.
+- **Test gap** — the mutant changes observable behavior no test asserts on.
+  Add coverage in `*_wbtest.mbt` (or extend `scripts/self_e2e.sh` assertions
+  for binary-level behavior) rather than excluding the file.
+- **Unobservable** — purely cosmetic output mutations (progress counters,
+  formatting) that no gate observes. Tolerable; document them here.
+
+## Binary e2e
+
+`scripts/self_e2e.sh` runs `moon run cmd/turtles` against `fixtures/basic`
+and validates the JSON report (schema, six fixture mutants, zero
+survivors/timeouts/unviables). It catches defects unit tests miss — a binary
+that exits successfully but produces a wrong report fails the assertions.
+
+The script runs the fixture sweep twice with different `--json` targets so
+both `mkdir` flag mutants in report writing stay reachable: the first report
+lands in an existing directory (a dropped `allow_exist=true` fails), the
+second in a nested non-existent directory (a dropped `recursive=true` fails).
+
+Because the script targets the *current* working directory's binary, running
+it inside a mutated workspace — as a custom gate command once per-mutant
+command gates exist — rebuilds and exercises the *mutated* binary. The
+fixture path is hard-coded inside the script and the inner run uses the
+default `check`/`test` classification, so self-mutation cannot recurse.
+
+## JSON report schema
+
+Schema `2` records, per mutant: `id`, `path`, `line`, `column`, `offset`,
+`end`, `group`, `visibility`, `original`, `replacement`, `outcome`,
+`duration_ms`, `reused`, plus optional `packages`, `killed_by`, and
+`attribution`. The report header carries `module`, `turtles_version`,
+`moon_version`, `target`, baseline phase durations, `test_scope`, per-file
+fingerprints, `skipped_files`, and `regressions`; the summary adds `reused`,
+`kills_by_kind`, `property_only_kills`, and the public/private visibility
+split. Schema `3` is reserved for target-aware classification
+(`issues/open/2026-09-30-target-aware-mutation-testing.md`).

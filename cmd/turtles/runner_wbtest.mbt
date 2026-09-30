@@ -314,3 +314,19 @@ async test "pristine workspace validation failure aborts as a setup error" {
     assert_true(raised)
   })
 }
+
+///|
+/// `--timeout-multiplier` bounds each phase at N times its measured baseline,
+/// floored at 10s; the check bound scales off max(check, test) because a
+/// mutant's recompile can dwarf the warm check.
+test "effective_timeouts scales off baselines with a 10s floor" {
+  let (flat_check, flat_test) = effective_timeouts(60000, None, 100L, 200L)
+  inspect(flat_check, content="60000")
+  inspect(flat_test, content="60000")
+  let (check_ms, test_ms) = effective_timeouts(60000, Some(3.0), 1000L, 4000L)
+  inspect(check_ms, content="12000")
+  inspect(test_ms, content="12000")
+  let (hub_check, hub_test) = effective_timeouts(60000, Some(3.0), 9000L, 1000L)
+  inspect(hub_check, content="27000")
+  inspect(hub_test, content="10000")
+}
