@@ -132,6 +132,7 @@ async test "write_json_report emits schema-2 JSON" {
       [],
       { "m.mbt": "hash" },
       50.0,
+      target=Some("native"),
     )
     write_json_report(path, report)
     let content = @fs.read_file(path).text()
@@ -140,6 +141,7 @@ async test "write_json_report emits schema-2 JSON" {
     assert_true(content.contains("\"module\": \"module/root\""))
     assert_true(content.contains("\"turtles_version\""))
     assert_true(content.contains("\"moon_version\": \"moon 0.1.x\""))
+    assert_true(content.contains("\"target\": \"native\""))
     // Int64 fields serialize as JSON strings (schema-1 did the same for
     // duration_ms — parsers must accept the quoted form).
     assert_true(content.contains("\"baseline_check_ms\": \"100\""))

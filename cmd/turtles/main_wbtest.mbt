@@ -34,6 +34,7 @@ async test "execute_with_config lists mutations or runs the pipeline" {
     let report = path_join(temp, "report.json")
     let base : Config = {
       dir: module_dir,
+      target: None,
       timeout_ms: 120000,
       jobs: 1,
       fail_under: None,

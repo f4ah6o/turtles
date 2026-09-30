@@ -94,6 +94,7 @@ fn ProjectConfig::operator_enabled(
 ///|
 struct Config {
   dir : String
+  target : String?
   timeout_ms : Int
   jobs : Int
   fail_under : Double?
@@ -255,6 +256,7 @@ struct JsonReport {
   module_path : String
   turtles_version : String
   moon_version : String?
+  target : String?
   baseline_duration_ms : Int64
   baseline_check_ms : Int64?
   baseline_test_ms : Int64?

@@ -363,12 +363,23 @@ fn TestPlan::test_packages_for(
 /// Capture the build plan without running it: `moon test --dry-run` prints
 /// every command moon would execute. Runs once on the pristine reference
 /// workspace before workers start mutating anything.
-async fn load_test_plan(reference : String) -> TestPlan {
+async fn load_test_plan(
+  reference : String,
+  target? : String? = None,
+) -> TestPlan {
   let log = reference + "-plan.log"
   let output = @process.redirect_to_file(log)
+  let args = ["test", "--dry-run"]
+  match target {
+    Some(selected) => {
+      args.push("--target")
+      args.push(selected)
+    }
+    None => ()
+  }
   let code = @process.run(
     "moon",
-    ["test", "--dry-run"],
+    args,
     cwd=reference,
     stdout=output,
     stderr=output,

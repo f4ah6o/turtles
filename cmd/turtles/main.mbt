@@ -55,6 +55,7 @@ async fn iterate_reuse(
   mutations : Array[Mutation],
   files : Map[String, String],
   moon_version : String?,
+  target : String?,
 ) -> Array[MutationResult?] {
   let reuse : Array[MutationResult?] = Array::make(mutations.length(), None)
   let report_path = path_join(output_dir, "report.json")
@@ -62,7 +63,14 @@ async fn iterate_reuse(
     Some(prior) => {
       let mut matched = 0
       for i = 0; i < mutations.length(); i = i + 1 {
-        match prior_reusable_outcome(prior, mutations[i], files, moon_version) {
+        match
+          prior_reusable_outcome(
+            prior,
+            mutations[i],
+            files,
+            moon_version,
+            target~,
+          ) {
           Some((outcome, kills)) => {
             reuse[i] = Some({
               mutation: mutations[i],
@@ -141,7 +149,7 @@ async fn execute_with_config(config : Config) -> Int {
     None => (path_join(root, ".turtles"), true)
   }
   let reuse = if config.iterate {
-    iterate_reuse(output_dir, mutations, files, moon_version)
+    iterate_reuse(output_dir, mutations, files, moon_version, config.target)
   } else {
     Array::make(mutations.length(), None)
   }
@@ -154,6 +162,7 @@ async fn execute_with_config(config : Config) -> Int {
     config.jobs,
     config.affected,
     reuse,
+    target=config.target,
   )
   let counts = count_outcomes(results)
   let score = mutation_score(counts.0, counts.1, counts.2)
@@ -219,6 +228,7 @@ async fn execute_with_config(config : Config) -> Int {
     files,
     score,
     regressions~,
+    target=config.target,
   )
   write_output_dir(
     output_dir,

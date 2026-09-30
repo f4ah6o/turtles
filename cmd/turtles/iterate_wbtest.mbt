@@ -33,7 +33,14 @@ fn mk_prior(
   mutants[mutation_identity(m)] = (m, outcome, kills)
   let files : Map[String, String] = Map([])
   files["a.mbt"] = file_hash
-  { schema, turtles_version: turtles, moon_version: moon, files, mutants, }
+  {
+    schema,
+    turtles_version: turtles,
+    moon_version: moon,
+    target: None,
+    files,
+    mutants,
+  }
 }
 
 ///|
@@ -53,6 +60,27 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     Some((Killed, None)) => ()
     _ => fail("expected reused KILLED")
   }
+  assert_true(
+    prior_reusable_outcome(
+      prior,
+      m,
+      current,
+      Some("moon x"),
+      target=Some("native"),
+    )
+    is None,
+  )
+  let native_prior = { ..prior, target: Some("native"), }
+  assert_true(
+    prior_reusable_outcome(
+      native_prior,
+      m,
+      current,
+      Some("moon x"),
+      target=Some("native"),
+    )
+    is Some((Killed, None)),
+  )
   // Survived and Timeout never reuse.
   let prior_survived = mk_prior(
     2,

@@ -83,6 +83,43 @@ async test "mutant ordering does not change classifications" {
 }
 
 ///|
+async test "native target selects native-only tests for classification" {
+  let temp = @fs.tmpdir(prefix="turtles-test")
+  @async.with_task_group(group => {
+    group.add_defer(() => @fs.rmdir(temp, recursive=true))
+    let module_dir = path_join(temp, "module")
+    @fs.mkdir(module_dir, recursive=true)
+    write_order_fixture(module_dir)
+    @fs.write_file(
+      path_join(module_dir, "moon.pkg"),
+      "options(targets: { \"order_test.mbt\": [\"native\"] })\n",
+    )
+    let mutations = discover_mutations(
+      module_dir,
+      None,
+      default_project_config(),
+      [],
+      [],
+    )
+    let (_, _, _, results, _) = run_mutations(
+      module_dir,
+      mutations,
+      120000,
+      None,
+      1,
+      false,
+      Array::make(mutations.length(), None),
+      target=Some("native"),
+    )
+    assert_true(
+      results.any(result => {
+        result.mutation.original == "+" && result.outcome == Killed
+      }),
+    )
+  })
+}
+
+///|
 async test "reported durations never exceed the wall clock" {
   let temp = @fs.tmpdir(prefix="turtles-test")
   @async.with_task_group(group => {

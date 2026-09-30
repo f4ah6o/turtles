@@ -144,6 +144,7 @@ fn build_report(
   files : Map[String, String],
   score : Double,
   regressions? : Array[String] = [],
+  target? : String? = None,
 ) -> JsonReport {
   let mutants : Array[JsonMutation] = []
   let mut reused = 0
@@ -164,6 +165,7 @@ fn build_report(
     module_path: root,
     turtles_version,
     moon_version,
+    target,
     baseline_duration_ms,
     baseline_check_ms: Some(baseline_check_ms),
     baseline_test_ms: Some(baseline_test_ms),
