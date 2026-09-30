@@ -131,8 +131,10 @@ jobs:
           # reported target-inactive and excluded from the score.
           report="$RUNNER_TEMP/turtles-targets.json"
           out="$RUNNER_TEMP/turtles-targets-out"
+          status=0
           moon run cmd/turtles -- --dir fixtures/targets --target native --timeout 60 \
-            --json "$report" --output-dir "$out"
+            --json "$report" --output-dir "$out" || status=$?
+          test "$status" -eq 1  # intentional equivalent-mutant survivors -> exit 1
           python - "$report" <<'PY'
           import json
           import sys
