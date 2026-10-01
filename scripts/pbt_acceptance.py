@@ -61,7 +61,9 @@ with tempfile.TemporaryDirectory(prefix='turtles-pbt-') as tmp:
     assert all(m['outcome'] == 'SURVIVED' and not m.get('amplified') for m in report['mutants'])
     assert 'amplified original check/test failed or timed out' in log
 
-    pbt = ROOT / 'fixtures/pbt'
+    # The full PBT fixture is covered by the preceding CI step. Use this
+    # bounded fixture for flag permutations so acceptance stays practical.
+    pbt = module
     for i, flags in enumerate((('--emit-properties',), ('--pbt-witness',), ('--pbt-amplify', '4'),
                               ('--emit-properties', '--pbt-witness', '--pbt-amplify', '4'),
                               ('--pbt-amplify', '4', '--pbt-witness', '--emit-properties'))):

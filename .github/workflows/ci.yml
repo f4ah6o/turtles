@@ -17,22 +17,6 @@ jobs:
         run: moon update
       - name: Check formatting
         run: moon fmt --check
-      - name: Export review validation environment
-        if: failure()
-        run: |
-          moon fmt
-          tar czf "$RUNNER_TEMP/formatted-sources.tar.gz" cmd/turtles
-          tar czf "$RUNNER_TEMP/moon-env.tar.gz" -C "$HOME" .moon
-          tar czf "$RUNNER_TEMP/moon-deps.tar.gz" .mooncakes
-          moon check --target native --deny-warn
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: review-validation-environment
-          path: |
-            ${{ runner.temp }}/formatted-sources.tar.gz
-            ${{ runner.temp }}/moon-env.tar.gz
-            ${{ runner.temp }}/moon-deps.tar.gz
       - name: Assert version consistency
         run: |
           mod_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' moon.mod)

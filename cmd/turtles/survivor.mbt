@@ -709,52 +709,50 @@ fn pkg_import_paths(text : String, start : Int, end : Int) -> Array[String] {
 }
 
 ///|
-/// moon.pkg import entries including explicit @aliases. Ignore line
-/// comments so commented imports cannot grant purity or rewrite rights.
-fn pkg_import_entries(
+/// Use Moon's manifest parser for import paths, aliases and scopes.
+/// This keeps comments, whitespace and repeated blocks from masquerading
+/// as imports. Malformed manifests grant no analysis permissions.
+fn pkg_text_import_entries(
   text : String,
-  start : Int,
-  end : Int,
+  scope : String,
 ) -> Array[(String, String?)] {
-  let bytes = @utf8.encode(text)
+  let (ast, reports) = @moon_config.parse_moon_pkg(text)
+  if !reports.is_empty() {
+    return []
+  }
+  guard ast is @moon_config.Ast::Obj(fields, ..) else { return [] }
   let entries : Array[(String, String?)] = []
-  let mut i = start
-  while i < end {
-    if i + 1 < end && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-      while i < end && bytes[i] != b'\n' {
-        i = i + 1
-      }
-    } else if bytes[i] == b'"' {
-      let mut j = i + 1
-      while j < end && bytes[j] != b'"' {
-        j = j + 1
-      }
-      if j == end {
-        break
-      }
-      let path = @utf8.decode_lossy(bytes[i + 1:j])
-      i = j + 1
-      while i < end && bytes[i] is (b' ' | b'\t' | b'\r' | b'\n') {
-        i = i + 1
-      }
-      let mut import_alias : String? = None
-      if i < end && bytes[i] == b'@' {
-        i = i + 1
-        let a = i
-        while i < end &&
-              (
-                (bytes[i] >= b'a' && bytes[i] <= b'z') ||
-                (bytes[i] >= b'A' && bytes[i] <= b'Z') ||
-                (bytes[i] >= b'0' && bytes[i] <= b'9') ||
-                bytes[i] == b'_'
-              ) {
-          i = i + 1
+  for field in fields {
+    let (key, value) = field
+    if key != "import" && (scope == "source" || key != "\{scope}-import") {
+      continue
+    }
+    guard value is @moon_config.Ast::Arr(items, ..) else { continue }
+    for item in items {
+      match item {
+        @moon_config.Ast::Str(path, ..) => entries.push((path, None))
+        @moon_config.Ast::Obj(props, ..) => {
+          let mut path : String? = None
+          let mut import_alias : String? = None
+          for prop in props {
+            let (name, value) = prop
+            match value {
+              @moon_config.Ast::Str(text, ..) =>
+                if name == "path" {
+                  path = Some(text)
+                } else if name == "alias" {
+                  import_alias = Some(text)
+                }
+              _ => ()
+            }
+          }
+          match path {
+            Some(path) => entries.push((path, import_alias))
+            None => ()
+          }
         }
-        import_alias = Some(@utf8.decode_lossy(bytes[a:i]))
+        _ => ()
       }
-      entries.push((path, import_alias))
-    } else {
-      i = i + 1
     }
   }
   entries
@@ -800,18 +798,8 @@ async fn pkg_import_map(
   let raw_entries : Array[(String, String?)] = []
   if @fs.exists(text_pkg) {
     let text = @fs.read_file(text_pkg).text() catch { _ => "" }
-    let bytes = @utf8.encode(text)
-    for (range, scoped) in pkg_import_blocks(text) {
-      let (start, end) = range
-      if scoped {
-        let suffix = @utf8.decode_lossy(bytes[end + 1:]).trim_start().to_owned()
-        if !suffix.has_prefix("for \"\{scope}\"") || scope == "source" {
-          continue
-        }
-      }
-      for entry in pkg_import_entries(text, start, end) {
-        raw_entries.push(entry)
-      }
+    for entry in pkg_text_import_entries(text, scope) {
+      raw_entries.push(entry)
     }
   }
   if @fs.exists(json_pkg) {

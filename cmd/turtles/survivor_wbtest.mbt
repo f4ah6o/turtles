@@ -487,14 +487,34 @@ test "the three PBT flags parse, and pbt-amplify rejects zero" {
 ///|
 test "witness determinism failure takes precedence in either record order" {
   let guard_kill : Kill = {
-    pkg: "p", filename: "lib.mbt", index: 0, test_name: "guard",
-    kind: Property, counterexample: Some("1"),
+    pkg: "p",
+    filename: "lib.mbt",
+    index: 0,
+    test_name: "guard",
+    kind: Property,
+    counterexample: Some("1"),
   }
-  let witness : Kill = { ..guard_kill, test_name: "witness", counterexample: Some("2"), }
-  assert_true(witness_verdict_from_kills([guard_kill], "guard", "witness") is WitnessNondeterministic)
-  assert_true(witness_verdict_from_kills([witness], "guard", "witness") is WitnessFound("2"))
-  assert_true(witness_verdict_from_kills([guard_kill, witness], "guard", "witness") is WitnessNondeterministic)
-  assert_true(witness_verdict_from_kills([witness, guard_kill], "guard", "witness") is WitnessNondeterministic)
+  let witness : Kill = {
+    ..guard_kill,
+    test_name: "witness",
+    counterexample: Some("2"),
+  }
+  assert_true(
+    witness_verdict_from_kills([guard_kill], "guard", "witness")
+    is WitnessNondeterministic,
+  )
+  assert_true(
+    witness_verdict_from_kills([witness], "guard", "witness")
+    is WitnessFound("2"),
+  )
+  assert_true(
+    witness_verdict_from_kills([guard_kill, witness], "guard", "witness")
+    is WitnessNondeterministic,
+  )
+  assert_true(
+    witness_verdict_from_kills([witness, guard_kill], "guard", "witness")
+    is WitnessNondeterministic,
+  )
 }
 
 ///|
@@ -540,7 +560,7 @@ async test "amplify resolves scope and aliases and ignores unrelated and bare ca
       "import { \"unrelated/package\" @quickcheck, }\nimport { \"moonbitlang/core/quickcheck\" @qc, } for \"test\"\nimport { \"moonbitlang/core/quickcheck\" @wb, } for \"wbtest\"\n",
     )
     let index = build_module_index(dir)
-    let unrelated = "test { @quickcheck.check((x : Int) => true); @unrelated.check((x : Int) => true); check((x : Int) => true) }"
+    let unrelated = "fn check(f : (Int) -> Bool) -> Unit { ignore(f) }\ntest { @quickcheck.check((x : Int) => true); @unrelated.check((x : Int) => true); check((x : Int) => true) }"
     assert_true(
       amplify_rewrite_file(unrelated, "lib_test.mbt", index, 4) is None,
     )
@@ -577,4 +597,29 @@ async test "JSON import identities preserve source test and whitebox scopes" {
     assert_true(wb.get("qc") is None)
     assert_eq(wb.get("quickcheck"), Some("moonbitlang/core/quickcheck"))
   })
+}
+
+///|
+test "manifest comments and spaced scopes do not grant import identity" {
+  let source =
+    #|// import { "moonbitlang/core/math", }
+    #|import { "unrelated/math", }
+    #|// import { "moonbitlang/core/quickcheck" @qc, } for "test"
+    #|import { "moonbitlang/core/quickcheck" @qc, "unrelated/other" @other, } for    "test"
+  let (_, reports) = @moon_config.parse_moon_pkg(source)
+  assert_eq(reports.map(r => r.msg), [])
+  assert_eq(pkg_text_import_entries(source, "source"), [
+    ("unrelated/math", None),
+  ])
+  assert_eq(pkg_text_import_entries(source, "test"), [
+    ("unrelated/math", None),
+    ("moonbitlang/core/quickcheck", Some("qc")),
+    ("unrelated/other", Some("other")),
+  ])
+}
+
+///|
+test "malformed duplicate scope imports grant no analysis permissions" {
+  let source = "import { \"moonbitlang/core/quickcheck\", } for \"test\"\nimport { \"unrelated/pkg\", } for \"test\"\n"
+  assert_true(pkg_text_import_entries(source, "test").is_empty())
 }
