@@ -323,7 +323,17 @@ async fn run_one_mutant(
   sweep_workspace(workspace, reference, manifest.val) catch {
     _ => manifest.val = rebuild_workspace(workspace, reference)
   }
-  { mutation, outcome, duration_ms, reused: false, packages, kills, }
+  {
+    mutation,
+    outcome,
+    duration_ms,
+    reused: false,
+    packages,
+    kills,
+    witness: None,
+    witness_skipped: None,
+    amplified: None,
+  }
 }
 
 ///|
@@ -412,7 +422,19 @@ async fn run_mutations(
   affected : Bool,
   reuse : Array[MutationResult?],
   target? : String? = None,
-) -> (Int64, Int64, Int64, Array[MutationResult], Array[Mutation], String) {
+  emit_properties? : Bool = false,
+  pbt_witness? : Bool = false,
+  pbt_amplify? : Int? = None,
+  output_dir? : String = "",
+) -> (
+  Int64,
+  Int64,
+  Int64,
+  Array[MutationResult],
+  Array[Mutation],
+  String,
+  Array[String]?,
+) {
   let root = @fs.realpath(root)
   let temp = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
@@ -535,13 +557,82 @@ async fn run_mutations(
     let results = run_mutation_pool(
       temp, reference, active_mutations, jobs, active_reuse, classify,
     )
+    // Survivor analyses run after classification, in the issue's fixed
+    // order: amplify first (it can still kill), witness and suggestions
+    // see only the final survivors. Everything goes through `moon_args`
+    // via run_moon_command, so --target keeps forwarding.
+    let properties : Array[String]? = if emit_properties ||
+      pbt_witness ||
+      pbt_amplify is Some(_) {
+      let analysis = path_join(temp, "analysis")
+      @fs.mkdir(analysis, recursive=true)
+      copy_tree(reference, reference, analysis)
+      match (Some(build_module_index(reference)) catch { _ => None }) {
+        Some(index) => {
+          match pbt_amplify {
+            Some(factor) =>
+              run_pbt_amplify(
+                analysis,
+                reference,
+                results,
+                index,
+                factor,
+                check_timeout_ms,
+                test_timeout_ms,
+                group_kill,
+                target~,
+              )
+            None => ()
+          }
+          if pbt_witness {
+            run_pbt_witness(
+              analysis,
+              reference,
+              results,
+              index,
+              test_timeout_ms,
+              group_kill,
+              target~,
+            )
+          }
+          let listed : Array[String]? = if emit_properties {
+            Some(
+              emit_property_files(
+                output_dir,
+                results,
+                index,
+                module_name_of(reference),
+                target,
+              ),
+            )
+          } else {
+            None
+          }
+          force_rmdir(analysis) catch {
+            _ => ()
+          }
+          listed
+        }
+        None => {
+          println(
+            "warning: survivor analysis skipped; could not index the module",
+          )
+          force_rmdir(analysis) catch {
+            _ => ()
+          }
+          None
+        }
+      }
+    } else {
+      None
+    }
     let scope = match plan {
       Some(_) => "affected"
       None => "module"
     }
     (
       baseline_duration_ms, baseline_check_ms, baseline_test_ms, results, inactive,
-      scope,
+      scope, properties,
     )
   }
 }

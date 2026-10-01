@@ -107,6 +107,9 @@ struct Config {
   affected : Bool
   operators : Array[OperatorGroup]?
   emit_regressions : Bool
+  emit_properties : Bool
+  pbt_witness : Bool
+  pbt_amplify : Int?
 }
 
 ///|
@@ -169,6 +172,14 @@ struct MutationResult {
   reused : Bool
   packages : Array[String]?
   kills : Array[Kill]?
+  /// PBT witness counterexample, or "none" when the harness ran its
+  /// budget without falsifying (--pbt-witness survivors only)
+  witness : String?
+  /// why no witness was produced (effects-unknown / recursive / cfg /
+  /// name-collision / nondeterministic / harness-error)
+  witness_skipped : String?
+  /// killed only after --pbt-amplify rewrote the property budget
+  amplified : Bool?
 }
 
 ///|
@@ -189,6 +200,9 @@ struct JsonMutation {
   packages : Array[String]?
   killed_by : Array[Kill]?
   attribution : String?
+  witness : String?
+  witness_skipped : String?
+  amplified : Bool?
 } derive(ToJson)
 
 ///|
@@ -271,6 +285,8 @@ struct JsonReport {
   skipped_files : Array[JsonSkippedFile]
   files : Map[String, String]?
   regressions : Array[String]
+  /// live `properties/<id>.mbt` files written by --emit-properties
+  properties : Array[String]?
 } derive(ToJson(fields(module_path(rename="module"))))
 
 ///|

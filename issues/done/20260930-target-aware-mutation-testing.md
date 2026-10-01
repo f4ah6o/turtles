@@ -331,26 +331,21 @@ turtles --dir fixtures/targets --target all --list
 
 Run native, then run js with `--iterate` against the same output directory. Zero native verdicts may be reused by the js run.
 
-### PBT analysis (once the PBT survivor-analysis issue is implemented)
+### PBT analysis (deferred — completed in `20260930-pbt-survivor-analysis.md`)
 
-With `--target native --pbt-witness --pbt-amplify <N>`, js-only mutants get no
-witness or amplification, and every Moon command the analyses run carries
-`--target native`.
+Verified on 2026-09-30 with `fixtures/targets` (extended with the
+witness-eligible survivors `common_keep` and `native_keep`):
 
-Run `--target native --emit-properties`, then `--target js --emit-properties`
-with the same output directory. After the js run, `properties/` has no
-suggestion for a native-only mutant, and the report's `properties` list and
-`target` describe only the js run.
-
-Include a surviving native-only function that is witness-eligible. Then
-
-```sh
-turtles --dir fixtures/targets --target all --pbt-witness
-```
-
-compiles the generated harness on every backend (no UNVIABLE or setup error
-caused by the harness on js/wasm), and records the witness for the native
-function.
+- `--target native --emit-properties --pbt-witness`: js-only mutants get no
+  witness or suggestion; every analysis Moon invocation carries
+  `--target native`.
+- `--target native --emit-properties` then `--target js --emit-properties`
+  against the same output dir: the js run sweeps `native_keep`'s
+  marker-bearing suggestion and `properties/` + the report's `properties`
+  list describe only the js run.
+- `--target all --pbt-witness`: the generated harness compiles and runs on
+  every backend (wasm, wasm-gc, js, native) and records witnesses for the
+  native-only survivor — no UNVIABLE or setup error caused by the harness.
 
 ## duckdb.mbt dogfood acceptance
 
@@ -381,7 +376,7 @@ The dogfood step should not modify `duckdb.mbt`; it validates turtles against a 
 - `--affected` and active-source discovery use the same target-aware plan.
 - `--iterate` cannot reuse across target changes.
 - PBT analyses (witness, suggestions, amplification) never cross the selected target boundary.
-- after a target switch, stale property suggestions from the previous target are swept; the `--target all` witness harness compiles on every backend.
+- after a target switch, stale property suggestions from the previous target are swept; the `--target all` witness harness compiles on every backend. (Done in `20260930-pbt-survivor-analysis.md`.)
 - report schema is 3 and remains deterministic.
 - `--list --target ...` filters by target without running tests.
 - no-target invocation preserves current behavior and output semantics apart from the schema/version changes required by implementation.
@@ -481,10 +476,10 @@ cross-target `--iterate` refusal).
 - **Fixture**: `fixtures/targets` — `common.mbt` (`+`), `native_only.mbt`
   (`*`), `js_only.mbt` (`-`) with matching `inspect` tests and
   `moon.pkg` `options(targets: {...})` file-level entries.
-- **PBT items deferred**: witness / suggestions / amplification are not
-  implemented here — they depend on PBT features that do not exist yet
-  (tracked in `issues/open/2026-09-29-pbt-survivor-analysis.md`). The
-  `moon_args` helper is the designated reuse point.
+- **PBT items deferred**: witness / suggestions / amplification were not
+  implemented here — they were delivered in
+  `issues/done/20260930-pbt-survivor-analysis.md` (2026-09-30), which used
+  the `moon_args` helper as the designated reuse point.
 
 ### Verification
 

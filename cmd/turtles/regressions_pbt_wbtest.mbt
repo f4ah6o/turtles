@@ -74,6 +74,9 @@ fn pbt_result(
     } else {
       None
     },
+    witness: None,
+    witness_skipped: None,
+    amplified: None,
   }
 }
 

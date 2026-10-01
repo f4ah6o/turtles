@@ -29,8 +29,8 @@ fn mk_prior(
   kills : Array[Kill]?,
 ) -> PriorReport {
   let m = mk_mutation("a.mbt", 0, 1, "+", "-")
-  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?)] = Map([])
-  mutants[mutation_identity(m)] = (m, outcome, kills)
+  let mutants : Map[String, (Mutation, Outcome, Array[Kill]?, Bool)] = Map([])
+  mutants[mutation_identity(m)] = (m, outcome, kills, false)
   let files : Map[String, String] = Map([])
   files["a.mbt"] = file_hash
   {
@@ -57,7 +57,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
     None,
   )
   match prior_reusable_outcome(prior, m, current, Some("moon x")) {
-    Some((Killed, None)) => ()
+    Some((Killed, None, _)) => ()
     _ => fail("expected reused KILLED")
   }
   assert_true(
@@ -79,7 +79,7 @@ test "iterate reuses only identity-matched KILLED/UNVIABLE under same toolchain"
       Some("moon x"),
       target=Some("native"),
     )
-    is Some((Killed, None)),
+    is Some((Killed, None, _)),
   )
   // Survived and Timeout never reuse.
   let prior_survived = mk_prior(
@@ -214,7 +214,7 @@ test "iterate refuses reuse when an unmutated fingerprint file changed" {
   }
   assert_true(
     prior_reusable_outcome(prior, m, unchanged, Some("moon x"))
-    is Some((Killed, None)),
+    is Some((Killed, None, _)),
   )
 }
 
@@ -269,7 +269,7 @@ async test "iterate round-trips killed_by attribution from a prior report" {
     current["a.mbt"] = "hash-a"
     let m = mk_mutation("a.mbt", 0, 1, "+", "-")
     match prior_reusable_outcome(prior, m, current, Some("moon x")) {
-      Some((Killed, Some(kills))) => {
+      Some((Killed, Some(kills), _)) => {
         assert_eq(kills.length(), 1)
         inspect(kills[0].pkg, content="probe/p")
         inspect(kills[0].filename, content="lib_test.mbt")
@@ -288,7 +288,7 @@ async test "iterate round-trips killed_by attribution from a prior report" {
     }
     assert_true(
       prior_reusable_outcome(bare, m, current, Some("moon x"))
-      is Some((Killed, None)),
+      is Some((Killed, None, _)),
     )
   })
 }
@@ -299,4 +299,23 @@ test "mutation_id is a stable m- prefixed hex digest" {
   assert_true(id.has_prefix("m-"))
   assert_eq(id.length(), 18)
   assert_eq(id, mutation_id(mk_mutation("a.mbt", 0, 1, "+", "-")))
+}
+
+///|
+test "iterate never reuses amplification-derived kills" {
+  let prior = mk_prior(
+    3,
+    Some(turtles_version),
+    Some("moon x"),
+    "hash-a",
+    Killed,
+    None,
+  )
+  let m = mk_mutation("a.mbt", 0, 1, "+", "-")
+  prior.mutants[mutation_identity(m)] = (m, Killed, None, true)
+  assert_true(
+    prior_reusable_outcome(prior, m, prior.files, Some("moon x")) is None,
+  )
+  // Amplification configuration is deliberately not trusted: the same
+  // conservative guard holds for a disabled or changed-factor run.
 }

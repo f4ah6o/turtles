@@ -56,6 +56,7 @@ async fn iterate_reuse(
   files : Map[String, String],
   moon_version : String?,
   target : String?,
+  pbt_amplify : Int?,
 ) -> Array[MutationResult?] {
   let reuse : Array[MutationResult?] = Array::make(mutations.length(), None)
   let report_path = path_join(output_dir, "report.json")
@@ -76,7 +77,7 @@ async fn iterate_reuse(
               moon_version,
               target~,
             ) {
-            Some((outcome, kills)) => {
+            Some((outcome, kills, amplified)) => {
               reuse[i] = Some({
                 mutation: mutations[i],
                 outcome,
@@ -84,6 +85,15 @@ async fn iterate_reuse(
                 reused: true,
                 packages: None,
                 kills,
+                witness: None,
+                witness_skipped: None,
+                // Amplification-derived kills are refused by the reuse
+                // guard; this marker cannot erase their provenance.
+                amplified: if pbt_amplify is Some(_) && amplified {
+                  Some(true)
+                } else {
+                  None
+                },
               })
               matched = matched + 1
             }
@@ -205,7 +215,14 @@ async fn execute_with_config(config : Config) -> Int {
     None => (path_join(root, ".turtles"), true)
   }
   let reuse = if config.iterate {
-    iterate_reuse(output_dir, mutations, files, moon_version, config.target)
+    iterate_reuse(
+      output_dir,
+      mutations,
+      files,
+      moon_version,
+      config.target,
+      config.pbt_amplify,
+    )
   } else {
     Array::make(mutations.length(), None)
   }
@@ -216,6 +233,7 @@ async fn execute_with_config(config : Config) -> Int {
     results,
     inactive,
     scope,
+    properties,
   ) = run_mutations(
     root,
     mutations,
@@ -225,6 +243,10 @@ async fn execute_with_config(config : Config) -> Int {
     config.affected,
     reuse,
     target=config.target,
+    emit_properties=config.emit_properties,
+    pbt_witness=config.pbt_witness,
+    pbt_amplify=config.pbt_amplify,
+    output_dir~,
   )
   let counts = count_outcomes(results)
   let score = mutation_score(counts.0, counts.1, counts.2)
@@ -299,6 +321,7 @@ async fn execute_with_config(config : Config) -> Int {
     regressions~,
     target=config.target,
     inactive~,
+    properties~,
   )
   write_output_dir(
     output_dir,
@@ -310,6 +333,10 @@ async fn execute_with_config(config : Config) -> Int {
   )
   if config.emit_regressions {
     println("  regressions: \{regressions.length()} template(s)")
+  }
+  match properties {
+    Some(list) => println("  properties: \{list.length()} suggestion(s)")
+    None => ()
   }
   println("  report:    \{path_join(output_dir, "report.json")}")
   match config.json_report {

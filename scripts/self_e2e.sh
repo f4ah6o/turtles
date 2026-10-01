@@ -20,7 +20,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
-assert report["schema"] == 2, report.get("schema")
+assert report["schema"] == 3, report.get("schema")
 assert len(report["mutants"]) == 6, len(report["mutants"])
 assert report["summary"]["killed"] == 6, report["summary"]
 assert report["summary"]["survived"] == 0, report["summary"]

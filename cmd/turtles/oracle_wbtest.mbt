@@ -117,6 +117,9 @@ fn oracle_result_with_kills(kills : Array[Kill]?) -> MutationResult {
     reused: base.reused,
     packages: base.packages,
     kills,
+    witness: base.witness,
+    witness_skipped: base.witness_skipped,
+    amplified: base.amplified,
   }
 }
 
