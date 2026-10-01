@@ -1,6 +1,7 @@
 # Target-aware mutation testing for multi-backend MoonBit modules
 
-- Status: done (2026-09-30) — P0 implemented; see "Completion record"
+- Status: closed (triaged 2026-10-02)
+- Previous record: done (2026-09-30) — P0 implemented; see "Completion record"
 - Origin: `f4ah6o/duckdb.mbt` dogfood review (2026-09-30), turtles baseline `598820c1`
 - Affected area: `cmd/turtles/` (config, runner, plan, report, iterate, main), `fixtures/`, `README.md`
 - Primary dogfood target: `f4ah6o/duckdb.mbt`
@@ -266,7 +267,7 @@ and regression templates / counterexamples are recorded with the target that
 produced them.
 
 The planned opt-in PBT analyses (`--emit-properties`, `--pbt-witness`,
-`--pbt-amplify <N>`, specified in `2026-09-29-pbt-survivor-analysis.md`) follow
+`--pbt-amplify <N>`, specified in `20260930-pbt-survivor-analysis.md`) follow
 the same rules:
 
 - their Moon invocations (witness runs, amplification re-runs) are built with
@@ -478,7 +479,7 @@ cross-target `--iterate` refusal).
   `moon.pkg` `options(targets: {...})` file-level entries.
 - **PBT items deferred**: witness / suggestions / amplification were not
   implemented here — they were delivered in
-  `issues/done/20260930-pbt-survivor-analysis.md` (2026-09-30), which used
+  `issues/closed/20260930-pbt-survivor-analysis.md` (2026-09-30), which used
   the `moon_args` helper as the designated reuse point.
 
 ### Verification
@@ -518,3 +519,11 @@ cross-target `--iterate` refusal).
 - platform-aware native cfg (`#cfg(platform=...)`)
 - arbitrary target subsets and report aggregation
 - target-specific default output directories if repeated single-target runs become a common workflow
+
+## Closure confirmation (2026-10-02)
+
+[PR #26](https://github.com/f4ah6o/turtles/pull/26) merged into `main` on
+2026-10-01. Its final head was `e2ba1d96bc748d87e0474ed0648b487f712726b2`;
+[CI run 36741693424](https://github.com/f4ah6o/turtles/actions/runs/36741693424)
+completed successfully. PBT integration subsequently landed in #27.
+The declaration-level cfg and other follow-ups above remain outside P0.

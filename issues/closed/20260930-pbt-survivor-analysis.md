@@ -1,7 +1,8 @@
 # PBT survivor analysis: property suggestions, differential witness, amplification
 
-- Status: open (2026-09-29)
-- Origin: residual P2 scope of [`../done/20260929-moonbit-idioms-and-pbt-integration.md`](../done/20260929-moonbit-idioms-and-pbt-integration.md)
+- Status: closed (triaged 2026-10-02)
+- Previous record: open (2026-09-29)
+- Origin: residual P2 scope of [`../closed/20260929-moonbit-idioms-and-pbt-integration.md`](../closed/20260929-moonbit-idioms-and-pbt-integration.md)
 - Builds on: #18 (structured oracle, `killed_by`), #19 (`body`, skip markers), #20 (`--emit-regressions`), #21 (visibility split), #22 (self-tests)
 - Affected area: `cmd/turtles/` (runner, report, a new survivor-analysis module, main/config), `fixtures/pbt`, `README.md`
 
@@ -163,7 +164,7 @@ this order.
 
 ## Target selection
 
-When `--target <TARGET>` (see `2026-09-30-target-aware-mutation-testing.md`)
+When `--target <TARGET>` (see `20260930-target-aware-mutation-testing.md`)
 is given, all three analyses follow the same target semantics as the verdicts:
 
 - Every Moon invocation they make (witness runs, `--pbt-amplify` re-runs)
@@ -308,3 +309,13 @@ The "Remaining gaps and open questions" items stay open product decisions:
 executable witness-call regression templates, vacuous `score_public` on
 executable packages, whether `body` becomes a default group, and
 core-only vs `moonbitlang/quickcheck` `@laws` suggestions.
+
+## Closure confirmation (2026-10-02)
+
+[PR #27](https://github.com/f4ah6o/turtles/pull/27) was retargeted to `main`
+after #26 and merged on 2026-10-01 at `9268c7bb6abf0d2a4f09c80612d751b0af226b37`.
+Its final head was `cfa38e80b56c645b8c6d05f855406e0305195088`;
+[CI run 36921928226](https://github.com/f4ah6o/turtles/actions/runs/36921928226)
+completed successfully. The unchecked checklist above is the original acceptance
+plan; implementation and verification evidence are recorded in the completion
+record. Remaining product decisions are follow-ups outside this closed scope.

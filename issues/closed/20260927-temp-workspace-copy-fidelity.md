@@ -1,6 +1,7 @@
 # Prevent false mutant classifications from lossy temporary-workspace copies
 
-- Status: implemented
+- Status: closed (triaged 2026-10-02)
+- Previous record: implemented
 - GitHub issue: #7
 - Origin: PR #3 review + current codebase review
 - Affected area: `cmd/turtles/fs_ops.mbt`, `cmd/turtles/runner.mbt`, baseline/setup flow

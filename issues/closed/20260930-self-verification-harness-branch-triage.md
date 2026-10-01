@@ -1,6 +1,7 @@
 # Branch triage: feat/self-verification-harness
 
-- Status: done (2026-09-30)
+- Status: closed (triaged 2026-10-02)
+- Previous record: done (2026-09-30)
 - Scope: `origin/feat/self-verification-harness` (last commit 2026-09-27), triaged against `main`.
 - Context: the branch has **no common history** with `main` — its root
   commit `4bb83c9` is a reconstructed baseline. It was triaged commit by
@@ -13,7 +14,7 @@
 |---|---|---|
 | `4bb83c9` | chore: record reconstructed remote main baseline | **dropped** — bookkeeping commit anchoring the reconstructed baseline; no content |
 | `2de828c` | feat: use parser AST for mutation discovery | **already on main** — `AstCandidateVisitor` drives `@parser.parse_string` discovery (`cmd/turtles/scanner.mbt`, `moonbitlang/parser@0.4.0`); `docs/moonbit-parser.md` documents the boundary table the branch added |
-| `574b131` | feat: add if condition structural mutations | **already on main** — `visit_Expr_If` records `cond → true` / `cond → false` range replacements; see `issues/done/20260927-structural-if-operator-group.md` |
+| `574b131` | feat: add if condition structural mutations | **already on main** — `visit_Expr_If` records `cond → true` / `cond → false` range replacements; see `issues/closed/20260927-structural-if-operator-group.md` |
 | `021da98` | test: cover if condition structural mutations | **already on main** — `fixtures/basic` `choose()` + tests, `scanner_wbtest` coverage, and the CI fixture assertions all exist |
 | `f7f8e35` | feat: add self-verification harness | **split** — see below |
 | `b051b3e` | fix: update parser ident pattern | **already on main** — `LongIdent::Ident(name~)` at `scanner.mbt:212,268,453,523` |
@@ -54,7 +55,7 @@
   porting it requires reworking `classify_mutant` (`runner.mbt`) and the
   report schema (`report.mbt`) — exactly the code the in-flight
   target-aware session
-  (`issues/open/2026-09-30-target-aware-mutation-testing.md`, schema 3) is
+  (`issues/closed/20260930-target-aware-mutation-testing.md`, schema 3) is
   changing, and the branch's design predates `--target`: builtin gate
   commands would need to forward the selected backend and join the
   `--iterate` reuse identity. Worth revisiting as a follow-up once

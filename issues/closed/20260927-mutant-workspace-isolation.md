@@ -1,6 +1,7 @@
 # Isolate filesystem side effects between mutant runs
 
-- Status: implemented
+- Status: closed (triaged 2026-10-02)
+- Previous record: implemented
 - GitHub issue: #9
 - Origin: current codebase review
 - Affected area: `cmd/turtles/runner.mbt`

@@ -1,6 +1,7 @@
 # Practical value milestone: warm workspaces, iterate mode, actionable survivors
 
-- Status: open (2026-09-28)
+- Status: closed (triaged 2026-10-02)
+- Previous record: open (2026-09-28)
 - Origin: user milestone request (2026-09-28), baseline `33efbf8`
 - Affected area: `cmd/turtles/` (runner, scanner, config, report, main), `fixtures/`, `README.md`
 
@@ -110,3 +111,11 @@ Persistent workspaces trade "fresh copy" for "restore in place":
 - Unit: identity/fingerprint matching, diff hunk emission, dry-run plan parsing (snapshot fixture of captured plan text), arg validation, report schema-2 fields, restore-stray-file cleanup.
 - Outcome equivalence: same project + same mutant set before/after → identical outcomes.
 - Self-dogfood at `--jobs 8` at the end; survivors triaged as test-gap / equivalent / unobservable.
+
+## Closure confirmation (2026-10-02)
+
+PR #15 implemented the selected P0 scope and was merged on 2026-09-28.
+PR #25 archived this milestone after branch triage and was merged on 2026-10-01.
+The original design and verification plan above are historical; schema 3 and
+whole-module fingerprint reuse guards supersede the original schema-2 plan.
+Explicitly deferred ideas are outside the completed milestone.

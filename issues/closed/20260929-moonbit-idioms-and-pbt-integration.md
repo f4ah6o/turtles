@@ -1,6 +1,7 @@
 # MoonBit-idiomatic mutation testing with deep QuickCheck (PBT) integration
 
-- Status: P0/P1 implemented (2026-09-29); P2 tracked in [`../open/2026-09-29-pbt-survivor-analysis.md`](../open/2026-09-29-pbt-survivor-analysis.md)
+- Status: closed (triaged 2026-10-02)
+- Previous record: P0/P1 implemented (2026-09-29); P2 tracked in [`20260930-pbt-survivor-analysis.md`](20260930-pbt-survivor-analysis.md)
 - Origin: user direction (2026-09-29), turtles baseline `76bfd78`
 - Affected area: `cmd/turtles/` (types, scanner, runner, report, config, main), `fixtures/`, `README.md`
 - References:
@@ -47,7 +48,7 @@ Deviations from the design below:
   validation copy, and `sweep_workspace` restores the snapshot between them,
   so side effects of the first run cannot leak into the second. The design
   sections below are historical and non-normative; the P2 witness design is
-  superseded by `../open/2026-09-29-pbt-survivor-analysis.md` (QuickCheck import
+  superseded by `20260930-pbt-survivor-analysis.md` (QuickCheck import
   and recursive-function handling).
 - The README documents these features in "Kill attribution and determinism"
   and "Skipping blocks" rather than a single "Property-based testing" section.
@@ -265,7 +266,7 @@ Probed with a scratch module (one property test, one snapshot test, a buggy `cla
 
 > Historical design. The normative P2 contract (opt-in flags, witness import,
 > recursion handling, target semantics) is
-> `../open/2026-09-29-pbt-survivor-analysis.md`; it takes precedence on any
+> `20260930-pbt-survivor-analysis.md`; it takes precedence on any
 > conflict.
 
 - For survivors in functions whose parameter/return types have standard
@@ -341,7 +342,7 @@ New `fixtures/pbt/` module:
       verdicts without new flags; JSON changes are additive only.
 - [x] turtles gains property tests for the listed invariants; self-run documented.
 - [x] README documents determinism, attribution, regressions, and skip marker ("Kill attribution and determinism", "Skipping blocks").
-- [x] P2 items (suggestions, differential witness, amplification) tracked in `../open/2026-09-29-pbt-survivor-analysis.md`.
+- [x] P2 items (suggestions, differential witness, amplification) tracked in `20260930-pbt-survivor-analysis.md`.
 
 ## Verification plan
 
@@ -375,7 +376,7 @@ skip marker, public/private split, and unchanged verdicts on old fixtures.
 Resolved or moved: the doc-test shape is recorded above; the remaining
 questions (`body` as a default group, extended `moonbitlang/quickcheck` in
 suggestions, target keying) moved to
-`../open/2026-09-29-pbt-survivor-analysis.md`.
+`20260930-pbt-survivor-analysis.md`.
 
 Original questions:
 
@@ -386,5 +387,11 @@ Original questions:
 - Should the extended `moonbitlang/quickcheck` (laws/FEAT) be recommended in
   suggestions, or stay core-only by default to avoid a dependency?
 - Interaction with target-aware testing
-  (`2026-09-30-target-aware-mutation-testing.md`): attribution and witnesses
+  (`20260930-target-aware-mutation-testing.md`): attribution and witnesses
   must be keyed by target.
+
+## Closure confirmation (2026-10-02)
+
+P0/P1 landed in PRs #18–#22. P2 was delivered separately in
+[the survivor-analysis record](20260930-pbt-survivor-analysis.md), merged as
+PR #27 on 2026-10-01. The original P2 links and open-state wording are historical.

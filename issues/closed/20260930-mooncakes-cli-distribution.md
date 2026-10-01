@@ -1,6 +1,7 @@
 # Publish turtles to Mooncakes as the stable CLI distribution channel
 
-- Status: implemented (2026-09-29) — `f4ah6o/turtles@0.2.0` published to Mooncakes and verified
+- Status: closed (triaged 2026-10-02)
+- Previous record: implemented (2026-09-29) — `f4ah6o/turtles@0.2.0` published to Mooncakes and verified
 - Origin: distribution decision after reviewing current CLI/package layout
 - Affected area: `moon.mod`, `cmd/turtles/moon.pkg`, `README.md`, release/publish workflow
 - Primary user-facing command: `turtles`

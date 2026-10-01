@@ -1,6 +1,7 @@
 # Practical usability milestone: install, parallel workers, CI threshold, actionable results
 
-- Status: implemented (2026-09-28)
+- Status: closed (triaged 2026-10-02)
+- Previous record: implemented (2026-09-28)
 - Origin: user milestone request (2026-09-28), baseline `7a44bcc`
 - Affected area: `cmd/turtles/` (config, runner, report, main, fs_ops), `fixtures/`, `README.md`, `.github/workflows/ci.yml`
 

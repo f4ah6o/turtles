@@ -1,6 +1,7 @@
 # Restore unary arithmetic mutation discovery after the AST migration
 
-- Status: implemented
+- Status: closed (triaged 2026-10-02)
+- Previous record: implemented
 - GitHub issue: #6
 - Origin: PR #4 post-merge review
 - Affected area: `cmd/turtles/scanner.mbt`, scanner tests
