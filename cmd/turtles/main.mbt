@@ -87,9 +87,8 @@ async fn iterate_reuse(
                 kills,
                 witness: None,
                 witness_skipped: None,
-                // The amplified marker only carries forward when the
-                // current run also amplifies — without the flag the JSON
-                // must not gain the field.
+                // Amplification-derived kills are refused by the reuse
+                // guard; this marker cannot erase their provenance.
                 amplified: if pbt_amplify is Some(_) && amplified {
                   Some(true)
                 } else {

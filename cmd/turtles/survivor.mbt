@@ -62,10 +62,10 @@ struct PkgIndex {
   symbols : Map[String, Bool]
   /// test-name literals declared in this package's test blocks
   tests : Map[String, Bool]
-  /// import alias -> module-local package dir (self alias included)
+  /// alias -> module-local dir or full external package path
   imports : Map[String, String]
-  /// quickcheck imported in any scope (regular, test or wbtest)
-  has_quickcheck : Bool
+  test_imports : Map[String, String]
+  wbtest_imports : Map[String, String]
 }
 
 ///|
@@ -709,13 +709,42 @@ fn pkg_import_paths(text : String, start : Int, end : Int) -> Array[String] {
 }
 
 ///|
-/// moon.pkg.json import entries: `"import"` accepts plain path strings
-/// and `{"path": ..., "alias": ...}` objects; scoped imports live under
-/// `test-import`/`wbtest-import` keys and do not apply to source files.
-fn pkg_json_imports(text : String) -> Array[(String, String?)] {
+/// moon.pkg import entries including explicit @aliases. Ignore line
+/// comments so commented imports cannot grant purity or rewrite rights.
+fn pkg_import_entries(text : String, start : Int, end : Int) -> Array[(String, String?)] {
+  let bytes = @utf8.encode(text)
+  let entries : Array[(String, String?)] = []
+  let mut i = start
+  while i < end {
+    if i + 1 < end && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+      while i < end && bytes[i] != b'\n' { i = i + 1 }
+    } else if bytes[i] == b'"' {
+      let mut j = i + 1
+      while j < end && bytes[j] != b'"' { j = j + 1 }
+      if j == end { break }
+      let path = @utf8.decode_lossy(bytes[i + 1:j])
+      i = j + 1
+      while i < end && bytes[i] is (b' ' | b'\t' | b'\r' | b'\n') { i = i + 1 }
+      let mut alias : String? = None
+      if i < end && bytes[i] == b'@' {
+        i = i + 1
+        let a = i
+        while i < end && ((bytes[i] >= b'a' && bytes[i] <= b'z') ||
+          (bytes[i] >= b'A' && bytes[i] <= b'Z') ||
+          (bytes[i] >= b'0' && bytes[i] <= b'9') || bytes[i] == b'_') { i = i + 1 }
+        alias = Some(@utf8.decode_lossy(bytes[a:i]))
+      }
+      entries.push((path, alias))
+    } else { i = i + 1 }
+  }
+  entries
+}
+
+///|
+fn pkg_json_import_entries(text : String, key : String) -> Array[(String, String?)] {
   let json = @json.parse(text) catch { _ => return [] }
   guard json is Object(fields) else { return [] }
-  guard fields.get("import") is Some(Array(entries)) else { return [] }
+  guard fields.get(key) is Some(Array(entries)) else { return [] }
   let imports : Array[(String, String?)] = []
   for entry in entries {
     match entry {
@@ -732,99 +761,68 @@ fn pkg_json_imports(text : String) -> Array[(String, String?)] {
 }
 
 ///|
-/// The import aliases one package dir can qualify (`@alias.name`) plus the
-/// module-local dir each resolves to. Aliases default to the path's last
-/// segment; every package also sees its own name.
+/// Read imports visible to the requested compilation scope. Preserve
+/// external identities: qualifier spelling alone never establishes purity.
 async fn pkg_import_map(
   root : String,
   dir : String,
   module_name : String?,
   pkg_dirs : Map[String, Bool],
-) -> (Map[String, String], Bool) {
+  scope : String,
+) -> Map[String, String] {
   let imports : Map[String, String] = Map([])
-  let mut has_quickcheck = false
   let abs = if dir == "." { root } else { path_join(root, dir) }
   let text_pkg = path_join(abs, "moon.pkg")
   let json_pkg = path_join(abs, "moon.pkg.json")
   let raw_entries : Array[(String, String?)] = []
   if @fs.exists(text_pkg) {
     let text = @fs.read_file(text_pkg).text() catch { _ => "" }
+    let bytes = @utf8.encode(text)
     for (range, scoped) in pkg_import_blocks(text) {
       let (start, end) = range
-      let paths = pkg_import_paths(text, start, end)
-      for path in paths {
-        if path == "moonbitlang/core/quickcheck" {
-          has_quickcheck = true
-        }
-      }
       if scoped {
-        continue
+        let suffix = @utf8.decode_lossy(bytes[end + 1:]).trim_start().to_owned()
+        if !suffix.has_prefix("for \"\{scope}\"") || scope == "source" { continue }
       }
-      for path in paths {
-        raw_entries.push((path, None))
-      }
+      for entry in pkg_import_entries(text, start, end) { raw_entries.push(entry) }
     }
   }
   if @fs.exists(json_pkg) {
     let text = @fs.read_file(json_pkg).text() catch { _ => "" }
-    if text.contains("moonbitlang/core/quickcheck") {
-      has_quickcheck = true
+    for entry in pkg_json_import_entries(text, "import") { raw_entries.push(entry) }
+    if scope != "source" {
+      for entry in pkg_json_import_entries(text, "\{scope}-import") { raw_entries.push(entry) }
     }
-    for entry in pkg_json_imports(text) {
-      raw_entries.push(entry)
-    }
-  }
-  let module_prefix = match module_name {
-    Some(name) => Some(name + "/")
-    None => None
   }
   for (path, as_name) in raw_entries {
     let bound_alias = match as_name {
       Some(name) => name
-      None =>
-        match path.rev_find("/") {
-          Some(slash) => path[slash + 1:].to_owned()
-          None => path
-        }
+      None => match path.rev_find("/") {
+        Some(slash) => path[slash + 1:].to_owned()
+        None => path
+      }
     }
-    // Only module-local packages can join the call graph; external paths
-    // keep no entry, so `@pkg.f` against them stays "unknown" unless the
-    // pkg is on the pure-core allowlist.
-    match module_prefix {
-      Some(prefix) =>
-        if path.has_prefix(prefix) {
+    let mut resolved = path
+    match module_name {
+      Some(name) => {
+        let prefix = name + "/"
+        if path == name { resolved = "." }
+        else if path.has_prefix(prefix) {
           let rest = path[prefix.length():].to_owned()
-          if pkg_dirs.contains(rest) {
-            imports[bound_alias] = rest
-          }
-        } else if module_name is Some(name) && path == name {
-          imports[bound_alias] = "."
+          if pkg_dirs.contains(rest) { resolved = rest }
         }
+      }
       None => ()
     }
+    imports[bound_alias] = resolved
   }
-  // Self alias: a package can qualify its own functions by its fqn's last
-  // segment (root package: the module name's last segment).
-  let self_name = match dir.rev_find("/") {
-    Some(slash) => dir[slash + 1:].to_owned()
-    None => dir
+  let self_name = if dir == "." { match module_name { Some(name) => name; None => dir } } else { dir }
+  let self_alias = match self_name.rev_find("/") {
+    Some(slash) => self_name[slash + 1:].to_owned()
+    None => self_name
   }
-  let self_alias = if dir == "." {
-    match module_name {
-      Some(name) =>
-        match name.rev_find("/") {
-          Some(slash) => name[slash + 1:].to_owned()
-          None => name
-        }
-      None => self_name
-    }
-  } else {
-    self_name
-  }
-  if !imports.contains(self_alias) {
-    imports[self_alias] = dir
-  }
-  (imports, has_quickcheck)
+  if !imports.contains(self_alias) { imports[self_alias] = dir }
+  imports
 }
 
 ///|
@@ -944,17 +942,21 @@ async fn index_pass1(
   let fns_by_file : Map[String, Array[FnInfo]] = Map([])
   let bodies : Map[String, @syntax.DeclBody] = Map([])
   let module_name = module_name_of(root)
-  let import_maps : Map[String, (Map[String, String], Bool)] = Map([])
+  let import_maps : Map[String, (Map[String, String], Map[String, String], Map[String, String])] = Map([])
   for dir, _ in pkg_dirs {
-    import_maps[dir] = pkg_import_map(root, dir, module_name, pkg_dirs)
+    import_maps[dir] = (
+      pkg_import_map(root, dir, module_name, pkg_dirs, "source"),
+      pkg_import_map(root, dir, module_name, pkg_dirs, "test"),
+      pkg_import_map(root, dir, module_name, pkg_dirs, "wbtest"),
+    )
   }
   let pkg_of = (dir : String) => {
     match pkgs.get(dir) {
       Some(existing) => existing
       None => {
-        let (imports, has_quickcheck) = match import_maps.get(dir) {
+        let (imports, test_imports, wbtest_imports) = match import_maps.get(dir) {
           Some(pair) => pair
-          None => (Map([]), false)
+          None => (Map([]), Map([]), Map([]))
         }
         let created : PkgIndex = {
           dir,
@@ -963,7 +965,8 @@ async fn index_pass1(
           symbols: Map([]),
           tests: Map([]),
           imports,
-          has_quickcheck,
+          test_imports,
+          wbtest_imports,
         }
         pkgs[dir] = created
         created
@@ -1063,9 +1066,6 @@ fn resolve_fn_effects(
     }
   }
   for qual, ids in visitor.dots {
-    if pure_core_pkg(qual) {
-      continue
-    }
     match pkg.imports.get(qual) {
       Some(dir) =>
         match pkgs.get(dir) {
@@ -1087,7 +1087,13 @@ fn resolve_fn_effects(
                 entry.effects_unknown = true
               }
             }
-          None => entry.effects_unknown = true
+          None => {
+            let core_prefix = "moonbitlang/core/"
+            if !dir.has_prefix(core_prefix) ||
+              !pure_core_pkg(dir[core_prefix.length():].to_owned()) {
+              entry.effects_unknown = true
+            }
+          }
         }
       None =>
         // Not allowlisted and not a module-local package: @env, @fs,

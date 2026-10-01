@@ -15,39 +15,21 @@
 let amplify_seed : UInt64 = 11400714819323198485UL
 
 ///|
-/// Whether an Apply head calls a QuickCheck entry point: `@quickcheck.*`
-/// by name, `@anything.quick_check*`, or a bare `check`/`quick_check*`
-/// when the owning package imports `moonbitlang/core/quickcheck`.
+/// Rewrite only qualified calls whose visible import resolves exactly
+/// to core QuickCheck. Bare names may be local or shadowed; leave them
+/// unchanged rather than infer identity from an unrelated import.
 fn is_check_callee(
   func : @syntax.Expr,
   pkg_imports : Map[String, String],
-  pkg_has_quickcheck : Bool,
 ) -> Bool {
-  let name_like = fn(name : String) {
-    name == "check" ||
-    name == "report" ||
-    name.has_prefix("quick_check") ||
-    name.has_prefix("quickcheck")
-  }
   match callee_head(func) {
     @syntax.Expr::Ident(id~, ..) =>
       match id.name {
-        @syntax.LongIdent::Ident(name~) => name_like(name) && pkg_has_quickcheck
         @syntax.LongIdent::Dot(pkg~, id~) =>
-          if !name_like(id) {
-            false
-          } else if pkg == "quickcheck" || pkg == "qc" {
-            true
-          } else {
-            match pkg_imports.get(pkg) {
-              // the alias resolves inside the module — not quickcheck
-              Some(_) => false
-              // an unresolvable alias may still be quickcheck under an
-              // unusual import alias; rewriting is safe either way, a bad
-              // rewrite only fails `moon check` and keeps the survivor
-              None => true
-            }
-          }
+          (id == "check" || id == "report" ||
+            id.has_prefix("quick_check") || id.has_prefix("quickcheck")) &&
+          pkg_imports.get(pkg) == Some("moonbitlang/core/quickcheck")
+        _ => false
       }
     _ => false
   }
@@ -96,7 +78,6 @@ struct AmplifyVisitor {
   bytes : Bytes
   boundaries : Array[Int]
   pkg_imports : Map[String, String]
-  pkg_has_quickcheck : Bool
   factor : Int
   edits : AmplifyEdits
 }
@@ -108,7 +89,7 @@ impl @syntax.IterVisitor for AmplifyVisitor with fn visit_Expr_Apply(
   args~,
   loc~,
 ) {
-  if is_check_callee(func, self.pkg_imports, self.pkg_has_quickcheck) {
+  if is_check_callee(func, self.pkg_imports) {
     let mut count_at : (Int, Int)? = None
     let mut seed_at : (Int, Int)? = None
     for arg in args {
@@ -221,18 +202,16 @@ fn amplify_rewrite_file(
   let boundaries = source_byte_boundaries(bytes)
   let dir = pkg_dir_of_file(index, file)
   let pkg_imports = match index.pkgs.get(dir) {
-    Some(pkg) => pkg.imports
+    Some(pkg) =>
+      if file.has_suffix("_wbtest.mbt") { pkg.wbtest_imports }
+      else if file.has_suffix("_test.mbt") { pkg.test_imports }
+      else { pkg.imports }
     None => Map([])
-  }
-  let pkg_has_quickcheck = match index.pkgs.get(dir) {
-    Some(pkg) => pkg.has_quickcheck
-    None => false
   }
   let visitor : AmplifyVisitor = {
     bytes,
     boundaries,
     pkg_imports,
-    pkg_has_quickcheck,
     factor,
     edits: AmplifyEdits::new(),
   }
@@ -281,25 +260,31 @@ async fn run_pbt_amplify(
     if !(result.outcome is Survived) {
       continue
     }
+    // First amplify the pristine tree using exactly this mutant's test
+    // selection. An original failure cannot establish a mutation kill.
+    rewrite_amplified_workspace(workspace, index, factor)
+    let control_ok = match run_moon_command(
+      workspace, ["check"], check_timeout_ms, group_kill, target~,
+    ) {
+      CommandSuccess => run_moon_command(
+        workspace, mutant_test_args(result.packages),
+        test_timeout_ms * factor, group_kill, target~,
+      ) is CommandSuccess
+      _ => false
+    }
+    sweep_workspace(workspace, reference, manifest.val) catch {
+      _ => manifest.val = rebuild_workspace(workspace, reference)
+    }
+    if !control_ok {
+      println("warning: amplification skipped for \{mutation_id(result.mutation)}: amplified original check/test failed or timed out")
+      continue
+    }
     let mutation = result.mutation
     let target_file = path_join(workspace, mutation.path)
     let source = @fs.read_file(target_file).text() catch { _ => continue }
     let mutated = apply_mutation(source, mutation) catch { _ => continue }
-    @fs.write_file(target_file, mutated) catch {
-      _ => continue
-    }
-    // Rewrite check-family calls in every module source (test files
-    // included — the properties live there).
-    let files : Array[String] = []
-    collect_all_moonbit_files(workspace, workspace, files)
-    for file in files {
-      let abs = path_join(workspace, file)
-      let text = @fs.read_file(abs).text() catch { _ => continue }
-      match amplify_rewrite_file(text, file, index, factor) {
-        Some(rewritten) => @fs.write_file(abs, rewritten) catch { _ => () }
-        None => ()
-      }
-    }
+    @fs.write_file(target_file, mutated) catch { _ => continue }
+    rewrite_amplified_workspace(workspace, index, factor)
     let killed = match
       run_moon_command(
         workspace,
@@ -331,6 +316,24 @@ async fn run_pbt_amplify(
     }
     sweep_workspace(workspace, reference, manifest.val) catch {
       _ => manifest.val = rebuild_workspace(workspace, reference)
+    }
+  }
+}
+
+///|
+async fn rewrite_amplified_workspace(
+  workspace : String,
+  index : ModuleIndex,
+  factor : Int,
+) -> Unit {
+  let files : Array[String] = []
+  collect_all_moonbit_files(workspace, workspace, files)
+  for file in files {
+    let abs = path_join(workspace, file)
+    let text = @fs.read_file(abs).text()
+    match amplify_rewrite_file(text, file, index, factor) {
+      Some(rewritten) => @fs.write_file(abs, rewritten)
+      None => ()
     }
   }
 }

@@ -367,22 +367,32 @@ async fn witness_verdict(
     Some(kills) => kills
     None => []
   }
-  let mut guarded = false
+  witness_verdict_from_kills(kills, guard_name, witness_name)
+}
+
+///|
+fn witness_verdict_from_kills(
+  kills : Array[Kill],
+  guard_name : String,
+  witness_name : String,
+) -> WitnessVerdict {
+  let mut counterexample : String? = None
   for kill in kills {
-    if kill.test_name == witness_name {
-      match kill.counterexample {
-        Some(counterexample) => return WitnessFound(counterexample)
-        None => return WitnessFound("(no counterexample recorded)")
-      }
-    }
+    // Guard failure invalidates every differential witness regardless
+    // of record order. Do not return a witness until all records agree.
     if kill.test_name == guard_name {
-      guarded = true
+      return WitnessNondeterministic
+    }
+    if kill.test_name == witness_name {
+      counterexample = Some(match kill.counterexample {
+        Some(text) => text
+        None => "(no counterexample recorded)"
+      })
     }
   }
-  if guarded {
-    WitnessNondeterministic
-  } else {
-    WitnessHarness
+  match counterexample {
+    Some(text) => WitnessFound(text)
+    None => WitnessHarness
   }
 }
 

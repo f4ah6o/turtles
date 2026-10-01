@@ -300,3 +300,13 @@ test "mutation_id is a stable m- prefixed hex digest" {
   assert_eq(id.length(), 18)
   assert_eq(id, mutation_id(mk_mutation("a.mbt", 0, 1, "+", "-")))
 }
+
+///|
+test "iterate never reuses amplification-derived kills" {
+  let prior = mk_prior(3, Some(turtles_version), Some("moon x"), "hash-a", Killed, None)
+  let m = mk_mutation("a.mbt", 0, 1, "+", "-")
+  prior.mutants[mutation_identity(m)] = (m, Killed, None, true)
+  assert_true(prior_reusable_outcome(prior, m, prior.files, Some("moon x")) is None)
+  // Amplification configuration is deliberately not trusted: the same
+  // conservative guard holds for a disabled or changed-factor run.
+}

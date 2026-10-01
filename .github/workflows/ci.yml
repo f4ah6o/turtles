@@ -17,6 +17,17 @@ jobs:
         run: moon update
       - name: Check formatting
         run: moon fmt --check
+      # Temporary bootstrap evidence; removed once remote formatting is retrieved.
+      - name: Export formatted review sources
+        if: failure()
+        run: |
+          moon fmt
+          tar czf "$RUNNER_TEMP/formatted-sources.tar.gz" cmd/turtles
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: formatted-review-sources
+          path: ${{ runner.temp }}/formatted-sources.tar.gz
       - name: Assert version consistency
         run: |
           mod_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' moon.mod)
@@ -251,13 +262,15 @@ jobs:
           survivors = [m for m in report["mutants"] if m["outcome"] == "SURVIVED"]
           assert survivors, "expected survivors"
           assert all(
-              m.get("witness") == "none" or m.get("witness_skipped")
+              m.get("witness") == "none" and "witness_skipped" not in m
               for m in survivors
           ), survivors
           assert any(
               m["path"] == "native_only.mbt" for m in survivors
           ), "native-only survivor expected under --target all"
           PY
+      - name: PBT regression acceptance
+        run: python3 scripts/pbt_acceptance.py
       - name: fail-under gates on the mutation score
         run: |
           # The isolation fixture scores 50%: a threshold at the score passes
@@ -318,3 +331,31 @@ jobs:
               assert report["summary"]["unviable"] == 0
               assert int(report["baseline_duration_ms"]) >= 0
           PY
+      - name: List self-mutation candidates
+        run: moon run cmd/turtles -- --dir . --list
+      - name: Self-mutation dogfood on fingerprint.mbt
+        # Bounded to a small file whose three mutants are deterministic
+        # kills so the gate stays fast while exercising the whole
+        # pipeline: discovery, workspace copy, baseline, per-mutant
+        # check + test, outcome attribution, and the JSON report.
+        run: |
+          report="$RUNNER_TEMP/turtles-self-report.json"
+          moon run cmd/turtles -- --dir . \
+            --file cmd/turtles/fingerprint.mbt \
+            --jobs 4 --timeout 300 --json "$report"
+          python - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          assert report["schema"] == 3
+          assert len(report["mutants"]) == 3
+          assert report["summary"]["killed"] == 3, report["summary"]
+          assert report["summary"]["survived"] == 0, report["summary"]
+          assert report["summary"]["timeout"] == 0, report["summary"]
+          assert report["summary"]["unviable"] == 0, report["summary"]
+          PY
+      - name: Binary self-verification e2e
+        run: sh scripts/self_e2e.sh

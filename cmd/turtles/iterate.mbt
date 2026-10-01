@@ -194,6 +194,12 @@ fn prior_reusable_outcome(
     is Some((_, outcome, kills, amplified)) else {
     return None
   }
+  // Amplification changes both budget and seeds. Its kills are never
+  // reusable, even when amplification is enabled again: conservatively
+  // reclassify and rerun the current analysis instead of losing provenance.
+  if amplified {
+    return None
+  }
   match outcome {
     // The kill's attribution travels with the verdict: a reused row
     // keeps the prior report's killed_by rather than degrading to
