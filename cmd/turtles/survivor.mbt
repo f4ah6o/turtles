@@ -737,7 +737,7 @@ fn pkg_import_entries(
       while i < end && bytes[i] is (b' ' | b'\t' | b'\r' | b'\n') {
         i = i + 1
       }
-      let mut alias : String? = None
+      let mut import_alias : String? = None
       if i < end && bytes[i] == b'@' {
         i = i + 1
         let a = i
@@ -750,9 +750,9 @@ fn pkg_import_entries(
               ) {
           i = i + 1
         }
-        alias = Some(@utf8.decode_lossy(bytes[a:i]))
+        import_alias = Some(@utf8.decode_lossy(bytes[a:i]))
       }
-      entries.push((path, alias))
+      entries.push((path, import_alias))
     } else {
       i = i + 1
     }

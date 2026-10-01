@@ -486,15 +486,15 @@ test "the three PBT flags parse, and pbt-amplify rejects zero" {
 
 ///|
 test "witness determinism failure takes precedence in either record order" {
-  let guard : Kill = {
+  let guard_kill : Kill = {
     pkg: "p", filename: "lib.mbt", index: 0, test_name: "guard",
     kind: Property, counterexample: Some("1"),
   }
-  let witness : Kill = { ..guard, test_name: "witness", counterexample: Some("2"), }
-  assert_true(witness_verdict_from_kills([guard], "guard", "witness") is WitnessNondeterministic)
+  let witness : Kill = { ..guard_kill, test_name: "witness", counterexample: Some("2"), }
+  assert_true(witness_verdict_from_kills([guard_kill], "guard", "witness") is WitnessNondeterministic)
   assert_true(witness_verdict_from_kills([witness], "guard", "witness") is WitnessFound("2"))
-  assert_true(witness_verdict_from_kills([guard, witness], "guard", "witness") is WitnessNondeterministic)
-  assert_true(witness_verdict_from_kills([witness, guard], "guard", "witness") is WitnessNondeterministic)
+  assert_true(witness_verdict_from_kills([guard_kill, witness], "guard", "witness") is WitnessNondeterministic)
+  assert_true(witness_verdict_from_kills([witness, guard_kill], "guard", "witness") is WitnessNondeterministic)
 }
 
 ///|
