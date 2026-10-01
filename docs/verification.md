@@ -74,15 +74,17 @@ default `check`/`test` classification, so self-mutation cannot recurse.
 
 ## JSON report schema
 
-Schema `2` records, per mutant: `id`, `path`, `line`, `column`, `offset`,
+Schema `3` records, per mutant: `id`, `path`, `line`, `column`, `offset`,
 `end`, `group`, `visibility`, `original`, `replacement`, `outcome`,
 `duration_ms`, `reused`, plus optional `packages`, `killed_by`, and
 `attribution`. The report header carries `module`, `turtles_version`,
 `moon_version`, `target`, baseline phase durations, `test_scope`, per-file
 fingerprints, `skipped_files`, and `regressions`; the summary adds `reused`,
 `kills_by_kind`, `property_only_kills`, and the public/private visibility
-split. Schema `3` is reserved for target-aware classification
-(`issues/open/2026-09-30-target-aware-mutation-testing.md`).
+split. Target-aware classification adds `inactive_mutants` and
+`inactive_files`, excluded from the mutation score. Optional PBT fields
+record witnesses, skipped witnesses, amplified kills, and property files.
+Schema-2 reports are not reusable with `--iterate`.
 
 ## PBT regression acceptance
 

@@ -259,8 +259,10 @@ async test "amplify rewrites scale budgets and shift seeds" {
   @async.with_task_group(group => {
     group.add_defer(() => @fs.rmdir(dir, recursive=true))
     write_index_module(dir)
-    @fs.write_file(path_join(dir, "moon.pkg"),
-      "import { \"moonbitlang/core/quickcheck\", } for \"test\"\n")
+    @fs.write_file(
+      path_join(dir, "moon.pkg"),
+      "import { \"moonbitlang/core/quickcheck\", } for \"test\"\n",
+    )
     let index = build_module_index(dir)
     let source =
       #|test "p" {
@@ -503,16 +505,26 @@ async test "witness follows local math imports and trusts resolved core aliases 
     write_index_module(dir)
     @fs.mkdir(path_join(dir, "math"))
     @fs.write_file(path_join(dir, "math/moon.pkg"), "")
-    @fs.write_file(path_join(dir, "math/lib.mbt"),
-      "let state : Ref[Int] = Ref(0)\npub fn tick(x : Int) -> Int { state.val = x; x }\n")
-    @fs.write_file(path_join(dir, "moon.pkg"),
-      "import { \"turtles/index_wbtest/math\", \"turtles/index_wbtest/math\" @m, \"moonbitlang/core/math\" @core_math, }\n")
-    @fs.write_file(path_join(dir, "lib.mbt"),
-      "pub fn default_alias(x : Int) -> Int { @math.tick(x) + 0 }\npub fn explicit_alias(x : Int) -> Int { @m.tick(x) + 0 }\npub fn pure_alias(x : Double) -> Double { @core_math.sqrt(x) }\n")
+    @fs.write_file(
+      path_join(dir, "math/lib.mbt"),
+      "let state : Ref[Int] = Ref(0)\npub fn tick(x : Int) -> Int { state.val = x; x }\n",
+    )
+    @fs.write_file(
+      path_join(dir, "moon.pkg"),
+      "import { \"turtles/index_wbtest/math\", \"turtles/index_wbtest/math\" @m, \"moonbitlang/core/math\" @core_math, }\n",
+    )
+    @fs.write_file(
+      path_join(dir, "lib.mbt"),
+      "pub fn default_alias(x : Int) -> Int { @math.tick(x) + 0 }\npub fn explicit_alias(x : Int) -> Int { @m.tick(x) + 0 }\npub fn pure_alias(x : Double) -> Double { @core_math.sqrt(x) }\n",
+    )
     let index = build_module_index(dir)
     let pkg = index.pkgs["."]
-    assert_true(witness_eligible(index, pkg.fns["default_alias"]) is Some(EffectsUnknown))
-    assert_true(witness_eligible(index, pkg.fns["explicit_alias"]) is Some(EffectsUnknown))
+    assert_true(
+      witness_eligible(index, pkg.fns["default_alias"]) is Some(EffectsUnknown),
+    )
+    assert_true(
+      witness_eligible(index, pkg.fns["explicit_alias"]) is Some(EffectsUnknown),
+    )
     assert_true(!pkg.fns["pure_alias"].effects_unknown)
   })
 }
@@ -523,17 +535,27 @@ async test "amplify resolves scope and aliases and ignores unrelated and bare ca
   @async.with_task_group(group => {
     group.add_defer(() => @fs.rmdir(dir, recursive=true))
     write_index_module(dir)
-    @fs.write_file(path_join(dir, "moon.pkg"),
-      "import { \"unrelated/package\" @quickcheck, }\nimport { \"moonbitlang/core/quickcheck\" @qc, } for \"test\"\nimport { \"moonbitlang/core/quickcheck\" @wb, } for \"wbtest\"\n")
+    @fs.write_file(
+      path_join(dir, "moon.pkg"),
+      "import { \"unrelated/package\" @quickcheck, }\nimport { \"moonbitlang/core/quickcheck\" @qc, } for \"test\"\nimport { \"moonbitlang/core/quickcheck\" @wb, } for \"wbtest\"\n",
+    )
     let index = build_module_index(dir)
     let unrelated = "test { @quickcheck.check((x : Int) => true); @unrelated.check((x : Int) => true); check((x : Int) => true) }"
-    assert_true(amplify_rewrite_file(unrelated, "lib_test.mbt", index, 4) is None)
+    assert_true(
+      amplify_rewrite_file(unrelated, "lib_test.mbt", index, 4) is None,
+    )
     let test_source = "test { @qc.check((x : Int) => true) }"
-    assert_true(amplify_rewrite_file(test_source, "lib_test.mbt", index, 4) is Some(_))
-    assert_true(amplify_rewrite_file(test_source, "lib_wbtest.mbt", index, 4) is None)
+    assert_true(
+      amplify_rewrite_file(test_source, "lib_test.mbt", index, 4) is Some(_),
+    )
+    assert_true(
+      amplify_rewrite_file(test_source, "lib_wbtest.mbt", index, 4) is None,
+    )
     assert_true(amplify_rewrite_file(test_source, "lib.mbt", index, 4) is None)
     let wb_source = "test { @wb.check((x : Int) => true) }"
-    assert_true(amplify_rewrite_file(wb_source, "lib_wbtest.mbt", index, 4) is Some(_))
+    assert_true(
+      amplify_rewrite_file(wb_source, "lib_wbtest.mbt", index, 4) is Some(_),
+    )
   })
 }
 
@@ -542,8 +564,10 @@ async test "JSON import identities preserve source test and whitebox scopes" {
   let dir = @fs.tmpdir(prefix="turtles-imports")
   @async.with_task_group(group => {
     group.add_defer(() => @fs.rmdir(dir, recursive=true))
-    @fs.write_file(path_join(dir, "moon.pkg.json"),
-      "{\"import\":[{\"path\":\"moonbitlang/core/math\",\"alias\":\"m\"}],\"test-import\":[{\"path\":\"moonbitlang/core/quickcheck\",\"alias\":\"qc\"}],\"wbtest-import\":[\"moonbitlang/core/quickcheck\"]}")
+    @fs.write_file(
+      path_join(dir, "moon.pkg.json"),
+      "{\"import\":[{\"path\":\"moonbitlang/core/math\",\"alias\":\"m\"}],\"test-import\":[{\"path\":\"moonbitlang/core/quickcheck\",\"alias\":\"qc\"}],\"wbtest-import\":[\"moonbitlang/core/quickcheck\"]}",
+    )
     let source = pkg_import_map(dir, ".", Some("p"), Map([]), "source")
     let test_imports = pkg_import_map(dir, ".", Some("p"), Map([]), "test")
     let wb = pkg_import_map(dir, ".", Some("p"), Map([]), "wbtest")

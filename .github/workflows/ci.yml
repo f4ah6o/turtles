@@ -17,17 +17,6 @@ jobs:
         run: moon update
       - name: Check formatting
         run: moon fmt --check
-      # Temporary bootstrap evidence; removed once remote formatting is retrieved.
-      - name: Export formatted review sources
-        if: failure()
-        run: |
-          moon fmt
-          tar czf "$RUNNER_TEMP/formatted-sources.tar.gz" cmd/turtles
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: formatted-review-sources
-          path: ${{ runner.temp }}/formatted-sources.tar.gz
       - name: Assert version consistency
         run: |
           mod_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' moon.mod)

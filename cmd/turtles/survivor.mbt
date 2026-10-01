@@ -711,37 +711,60 @@ fn pkg_import_paths(text : String, start : Int, end : Int) -> Array[String] {
 ///|
 /// moon.pkg import entries including explicit @aliases. Ignore line
 /// comments so commented imports cannot grant purity or rewrite rights.
-fn pkg_import_entries(text : String, start : Int, end : Int) -> Array[(String, String?)] {
+fn pkg_import_entries(
+  text : String,
+  start : Int,
+  end : Int,
+) -> Array[(String, String?)] {
   let bytes = @utf8.encode(text)
   let entries : Array[(String, String?)] = []
   let mut i = start
   while i < end {
     if i + 1 < end && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-      while i < end && bytes[i] != b'\n' { i = i + 1 }
+      while i < end && bytes[i] != b'\n' {
+        i = i + 1
+      }
     } else if bytes[i] == b'"' {
       let mut j = i + 1
-      while j < end && bytes[j] != b'"' { j = j + 1 }
-      if j == end { break }
+      while j < end && bytes[j] != b'"' {
+        j = j + 1
+      }
+      if j == end {
+        break
+      }
       let path = @utf8.decode_lossy(bytes[i + 1:j])
       i = j + 1
-      while i < end && bytes[i] is (b' ' | b'\t' | b'\r' | b'\n') { i = i + 1 }
+      while i < end && bytes[i] is (b' ' | b'\t' | b'\r' | b'\n') {
+        i = i + 1
+      }
       let mut alias : String? = None
       if i < end && bytes[i] == b'@' {
         i = i + 1
         let a = i
-        while i < end && ((bytes[i] >= b'a' && bytes[i] <= b'z') ||
-          (bytes[i] >= b'A' && bytes[i] <= b'Z') ||
-          (bytes[i] >= b'0' && bytes[i] <= b'9') || bytes[i] == b'_') { i = i + 1 }
+        while i < end &&
+              (
+                (bytes[i] >= b'a' && bytes[i] <= b'z') ||
+                (bytes[i] >= b'A' && bytes[i] <= b'Z') ||
+                (bytes[i] >= b'0' && bytes[i] <= b'9') ||
+                bytes[i] == b'_'
+              ) {
+          i = i + 1
+        }
         alias = Some(@utf8.decode_lossy(bytes[a:i]))
       }
       entries.push((path, alias))
-    } else { i = i + 1 }
+    } else {
+      i = i + 1
+    }
   }
   entries
 }
 
 ///|
-fn pkg_json_import_entries(text : String, key : String) -> Array[(String, String?)] {
+fn pkg_json_import_entries(
+  text : String,
+  key : String,
+) -> Array[(String, String?)] {
   let json = @json.parse(text) catch { _ => return [] }
   guard json is Object(fields) else { return [] }
   guard fields.get(key) is Some(Array(entries)) else { return [] }
@@ -782,46 +805,67 @@ async fn pkg_import_map(
       let (start, end) = range
       if scoped {
         let suffix = @utf8.decode_lossy(bytes[end + 1:]).trim_start().to_owned()
-        if !suffix.has_prefix("for \"\{scope}\"") || scope == "source" { continue }
+        if !suffix.has_prefix("for \"\{scope}\"") || scope == "source" {
+          continue
+        }
       }
-      for entry in pkg_import_entries(text, start, end) { raw_entries.push(entry) }
+      for entry in pkg_import_entries(text, start, end) {
+        raw_entries.push(entry)
+      }
     }
   }
   if @fs.exists(json_pkg) {
     let text = @fs.read_file(json_pkg).text() catch { _ => "" }
-    for entry in pkg_json_import_entries(text, "import") { raw_entries.push(entry) }
+    for entry in pkg_json_import_entries(text, "import") {
+      raw_entries.push(entry)
+    }
     if scope != "source" {
-      for entry in pkg_json_import_entries(text, "\{scope}-import") { raw_entries.push(entry) }
+      for entry in pkg_json_import_entries(text, "\{scope}-import") {
+        raw_entries.push(entry)
+      }
     }
   }
   for (path, as_name) in raw_entries {
     let bound_alias = match as_name {
       Some(name) => name
-      None => match path.rev_find("/") {
-        Some(slash) => path[slash + 1:].to_owned()
-        None => path
-      }
+      None =>
+        match path.rev_find("/") {
+          Some(slash) => path[slash + 1:].to_owned()
+          None => path
+        }
     }
     let mut resolved = path
     match module_name {
       Some(name) => {
         let prefix = name + "/"
-        if path == name { resolved = "." }
-        else if path.has_prefix(prefix) {
+        if path == name {
+          resolved = "."
+        } else if path.has_prefix(prefix) {
           let rest = path[prefix.length():].to_owned()
-          if pkg_dirs.contains(rest) { resolved = rest }
+          if pkg_dirs.contains(rest) {
+            resolved = rest
+          }
         }
       }
       None => ()
     }
     imports[bound_alias] = resolved
   }
-  let self_name = if dir == "." { match module_name { Some(name) => name; None => dir } } else { dir }
+  let self_name = if dir == "." {
+    match module_name {
+      Some(name) => name
+      None => dir
+    }
+  } else {
+    dir
+  }
   let self_alias = match self_name.rev_find("/") {
     Some(slash) => self_name[slash + 1:].to_owned()
     None => self_name
   }
-  if !imports.contains(self_alias) { imports[self_alias] = dir }
+  if !imports.contains(self_alias) {
+    imports[self_alias] = dir
+  }
   imports
 }
 
@@ -942,7 +986,10 @@ async fn index_pass1(
   let fns_by_file : Map[String, Array[FnInfo]] = Map([])
   let bodies : Map[String, @syntax.DeclBody] = Map([])
   let module_name = module_name_of(root)
-  let import_maps : Map[String, (Map[String, String], Map[String, String], Map[String, String])] = Map([])
+  let import_maps : Map[
+    String,
+    (Map[String, String], Map[String, String], Map[String, String]),
+  ] = Map([])
   for dir, _ in pkg_dirs {
     import_maps[dir] = (
       pkg_import_map(root, dir, module_name, pkg_dirs, "source"),
@@ -954,7 +1001,8 @@ async fn index_pass1(
     match pkgs.get(dir) {
       Some(existing) => existing
       None => {
-        let (imports, test_imports, wbtest_imports) = match import_maps.get(dir) {
+        let (imports, test_imports, wbtest_imports) = match
+          import_maps.get(dir) {
           Some(pair) => pair
           None => (Map([]), Map([]), Map([]))
         }

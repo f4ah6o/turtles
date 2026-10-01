@@ -384,10 +384,12 @@ fn witness_verdict_from_kills(
       return WitnessNondeterministic
     }
     if kill.test_name == witness_name {
-      counterexample = Some(match kill.counterexample {
-        Some(text) => text
-        None => "(no counterexample recorded)"
-      })
+      counterexample = Some(
+        match kill.counterexample {
+          Some(text) => text
+          None => "(no counterexample recorded)"
+        },
+      )
     }
   }
   match counterexample {

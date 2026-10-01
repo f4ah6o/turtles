@@ -26,8 +26,12 @@ fn is_check_callee(
     @syntax.Expr::Ident(id~, ..) =>
       match id.name {
         @syntax.LongIdent::Dot(pkg~, id~) =>
-          (id == "check" || id == "report" ||
-            id.has_prefix("quick_check") || id.has_prefix("quickcheck")) &&
+          (
+            id == "check" ||
+            id == "report" ||
+            id.has_prefix("quick_check") ||
+            id.has_prefix("quickcheck")
+          ) &&
           pkg_imports.get(pkg) == Some("moonbitlang/core/quickcheck")
         _ => false
       }
@@ -203,9 +207,13 @@ fn amplify_rewrite_file(
   let dir = pkg_dir_of_file(index, file)
   let pkg_imports = match index.pkgs.get(dir) {
     Some(pkg) =>
-      if file.has_suffix("_wbtest.mbt") { pkg.wbtest_imports }
-      else if file.has_suffix("_test.mbt") { pkg.test_imports }
-      else { pkg.imports }
+      if file.has_suffix("_wbtest.mbt") {
+        pkg.wbtest_imports
+      } else if file.has_suffix("_test.mbt") {
+        pkg.test_imports
+      } else {
+        pkg.imports
+      }
     None => Map([])
   }
   let visitor : AmplifyVisitor = {
@@ -263,27 +271,41 @@ async fn run_pbt_amplify(
     // First amplify the pristine tree using exactly this mutant's test
     // selection. An original failure cannot establish a mutation kill.
     rewrite_amplified_workspace(workspace, index, factor)
-    let control_ok = match run_moon_command(
-      workspace, ["check"], check_timeout_ms, group_kill, target~,
-    ) {
-      CommandSuccess => run_moon_command(
-        workspace, mutant_test_args(result.packages),
-        test_timeout_ms * factor, group_kill, target~,
-      ) is CommandSuccess
+    let control_ok = match
+      run_moon_command(
+        workspace,
+        ["check"],
+        check_timeout_ms,
+        group_kill,
+        target~,
+      ) {
+      CommandSuccess =>
+        run_moon_command(
+          workspace,
+          mutant_test_args(result.packages),
+          test_timeout_ms * factor,
+          group_kill,
+          target~,
+        )
+        is CommandSuccess
       _ => false
     }
     sweep_workspace(workspace, reference, manifest.val) catch {
       _ => manifest.val = rebuild_workspace(workspace, reference)
     }
     if !control_ok {
-      println("warning: amplification skipped for \{mutation_id(result.mutation)}: amplified original check/test failed or timed out")
+      println(
+        "warning: amplification skipped for \{mutation_id(result.mutation)}: amplified original check/test failed or timed out",
+      )
       continue
     }
     let mutation = result.mutation
     let target_file = path_join(workspace, mutation.path)
     let source = @fs.read_file(target_file).text() catch { _ => continue }
     let mutated = apply_mutation(source, mutation) catch { _ => continue }
-    @fs.write_file(target_file, mutated) catch { _ => continue }
+    @fs.write_file(target_file, mutated) catch {
+      _ => continue
+    }
     rewrite_amplified_workspace(workspace, index, factor)
     let killed = match
       run_moon_command(
