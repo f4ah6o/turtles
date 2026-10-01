@@ -231,7 +231,15 @@ test "parse_args selects a MoonBit target" {
   let all = parse_args(["turtles", "--target", "all"])
   debug_inspect(all.target, content="Some(\"all\")")
   assert_true(parse_args_fails(["turtles", "--target"]))
-  assert_true(parse_args_fails(["turtles", "--target", "invalid"]))
+  // Any non-empty value passes: moon owns backend validity, so a backend
+  // unknown to this turtles build is still forwarded for moon to judge.
+  let unknown = parse_args(["turtles", "--target", "future-backend"])
+  debug_inspect(unknown.target, content="Some(\"future-backend\")")
+  // A repeat is an argument error; an empty value is not a target.
+  assert_true(
+    parse_args_fails(["turtles", "--target", "native", "--target", "js"]),
+  )
+  assert_true(parse_args_fails(["turtles", "--target", ""]))
 }
 
 ///|

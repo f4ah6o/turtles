@@ -257,6 +257,11 @@ struct JsonReport {
   turtles_version : String
   moon_version : String?
   target : String?
+  /// Mutants Moon does not compile for the selected target: reported but
+  /// never classified, so they cannot distort the score.
+  inactive_mutants : Int
+  /// Sorted module-relative paths contributing at least one inactive mutant.
+  inactive_files : Array[String]
   baseline_duration_ms : Int64
   baseline_check_ms : Int64?
   baseline_test_ms : Int64?

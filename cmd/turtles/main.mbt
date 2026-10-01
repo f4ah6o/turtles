@@ -60,39 +60,102 @@ async fn iterate_reuse(
   let reuse : Array[MutationResult?] = Array::make(mutations.length(), None)
   let report_path = path_join(output_dir, "report.json")
   match load_prior_report(report_path) {
-    Some(prior) => {
-      let mut matched = 0
-      for i = 0; i < mutations.length(); i = i + 1 {
-        match
-          prior_reusable_outcome(
-            prior,
-            mutations[i],
-            files,
-            moon_version,
-            target~,
-          ) {
-          Some((outcome, kills)) => {
-            reuse[i] = Some({
-              mutation: mutations[i],
-              outcome,
-              duration_ms: 0L,
-              reused: true,
-              packages: None,
-              kills,
-            })
-            matched = matched + 1
+    Some(prior) =>
+      if !fingerprints_match(prior.files, files) {
+        println(
+          "Iterate: source/test/manifest fingerprints changed since \{report_path}; running fresh",
+        )
+      } else {
+        let mut matched = 0
+        for i = 0; i < mutations.length(); i = i + 1 {
+          match
+            prior_reusable_outcome(
+              prior,
+              mutations[i],
+              files,
+              moon_version,
+              target~,
+            ) {
+            Some((outcome, kills)) => {
+              reuse[i] = Some({
+                mutation: mutations[i],
+                outcome,
+                duration_ms: 0L,
+                reused: true,
+                packages: None,
+                kills,
+              })
+              matched = matched + 1
+            }
+            None => ()
           }
-          None => ()
         }
+        println(
+          "Iterate: reusing \{matched}/\{mutations.length()} verdicts from \{report_path}",
+        )
       }
-      println(
-        "Iterate: reusing \{matched}/\{mutations.length()} verdicts from \{report_path}",
-      )
-    }
     None =>
       println("Iterate: no reusable report at \{report_path}; running fresh")
   }
   reuse
+}
+
+///|
+/// Print the mutants a run would classify. With an explicit --target,
+/// Moon's dry-run on a pristine temporary reference decides which files
+/// compile for the backend — inactive mutants are reported but never
+/// listed as mutants, and no baseline or mutant test runs.
+async fn print_mutation_list(
+  root : String,
+  mutations : Array[Mutation],
+  skipped_blocks : Array[SkippedBlock],
+  target : String?,
+) -> Unit {
+  let (listed, inactive) = match target {
+    Some(_) => {
+      let temp = @fs.tmpdir(prefix="turtles-list")
+      let reference = path_join(temp, "reference")
+      @fs.mkdir(reference, recursive=true)
+      copy_tree(root, root, reference)
+      let plan : MoonPlan = load_moon_plan(reference, target~) catch {
+        error => {
+          force_rmdir(temp) catch {
+            _ => ()
+          }
+          fail("\{error}")
+        }
+      }
+      force_rmdir(temp) catch {
+        _ => ()
+      }
+      let (active, _, inactive) = partition_by_active_source(
+        mutations,
+        [],
+        plan.active_sources,
+      )
+      (active, inactive)
+    }
+    None => (mutations, [])
+  }
+  for mutation in listed {
+    println(
+      "\{describe_mutation(mutation)} [\{visibility_name(mutation.visibility)}]",
+    )
+  }
+  for block in skipped_blocks {
+    println("  \{block.path}:\{block.line} (skipped)")
+  }
+  match target {
+    Some(selected) => {
+      println(
+        "Target \{selected}: \{inactive.length()} target-inactive mutation(s) not listed",
+      )
+      for file in unique_sorted_paths(inactive) {
+        println("  target-inactive: \{file}")
+      }
+    }
+    None => ()
+  }
 }
 
 ///|
@@ -132,14 +195,7 @@ async fn execute_with_config(config : Config) -> Int {
     )
   }
   if config.list {
-    for mutation in mutations {
-      println(
-        "\{describe_mutation(mutation)} [\{visibility_name(mutation.visibility)}]",
-      )
-    }
-    for block in skipped_blocks {
-      println("  \{block.path}:\{block.line} (skipped)")
-    }
+    print_mutation_list(root, mutations, skipped_blocks, config.target)
     return 0
   }
 
@@ -153,7 +209,13 @@ async fn execute_with_config(config : Config) -> Int {
   } else {
     Array::make(mutations.length(), None)
   }
-  let (baseline_duration_ms, baseline_check_ms, baseline_test_ms, results, scope
+  let (
+    baseline_duration_ms,
+    baseline_check_ms,
+    baseline_test_ms,
+    results,
+    inactive,
+    scope,
   ) = run_mutations(
     root,
     mutations,
@@ -169,10 +231,17 @@ async fn execute_with_config(config : Config) -> Int {
   let reused = results.filter(result => result.reused).length()
   println("")
   println("Mutation testing complete:")
+  match config.target {
+    Some(selected) => println("  target:    \{selected}")
+    None => ()
+  }
   println("  killed:    \{counts.0}")
   println("  survived:  \{counts.1}")
   println("  timeout:   \{counts.2}")
   println("  unviable:  \{counts.3}")
+  if inactive.length() > 0 {
+    println("  inactive:  \{inactive.length()} (excluded from score)")
+  }
   if reused > 0 {
     println("  reused:    \{reused}")
   }
@@ -229,6 +298,7 @@ async fn execute_with_config(config : Config) -> Int {
     score,
     regressions~,
     target=config.target,
+    inactive~,
   )
   write_output_dir(
     output_dir,

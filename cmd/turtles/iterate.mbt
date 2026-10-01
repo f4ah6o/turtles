@@ -37,7 +37,7 @@ fn outcome_from_name(name : String) -> Outcome? {
 }
 
 ///|
-/// Read a schema-2 report for --iterate. Older or partial reports yield
+/// Read a schema-3 report for --iterate. Older or partial reports yield
 /// None rather than failing the run — reuse is an optimization, never
 /// required for correctness.
 async fn load_prior_report(path : String) -> PriorReport? {
@@ -131,13 +131,32 @@ fn parse_prior_mutant(json : Json) -> (Mutation, Outcome, Array[Kill]?)? {
 }
 
 ///|
+/// True only when both fingerprint maps agree on the same file set and
+/// hashes — a file added, removed, or edited in either direction makes
+/// prior verdicts unverifiable.
+fn fingerprints_match(
+  prior : Map[String, String],
+  current : Map[String, String],
+) -> Bool {
+  guard prior.length() == current.length() else { return false }
+  for path, hash in prior {
+    if current.get(path) != Some(hash) {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Reuse is only ever an optimization: any doubt sends the mutant back
 /// through the classifier. Reuse a prior KILLED/UNVIABLE verdict iff the
 /// mutant's identity tuple matches (path + byte span + both texts +
-/// operator group — never line numbers), the file's current content hash
-/// equals the hash recorded for it, and the same turtles/moon toolchain
-/// produced the prior report. Survived/Timeout are never reused — they are
-/// exactly what an iterated run must re-examine.
+/// operator group — never line numbers), the whole fingerprint map is
+/// unchanged — a verdict may owe its outcome to a test file, `moon.pkg`
+/// target rules, `moon.mod`, or `turtles.toml`, not just the mutated
+/// source — and the same turtles/moon toolchain produced the prior
+/// report. Survived/Timeout are never reused — they are exactly what an
+/// iterated run must re-examine.
 fn prior_reusable_outcome(
   prior : PriorReport,
   mutation : Mutation,
@@ -145,7 +164,7 @@ fn prior_reusable_outcome(
   moon_version : String?,
   target? : String? = None,
 ) -> (Outcome, Array[Kill]?)? {
-  if prior.schema != 2 {
+  if prior.schema != 3 {
     return None
   }
   if prior.turtles_version != Some(turtles_version) {
@@ -157,6 +176,7 @@ fn prior_reusable_outcome(
   if prior.target != target {
     return None
   }
+  guard fingerprints_match(prior.files, current_files) else { return None }
   guard prior.files.get(mutation.path) is Some(recorded_hash) &&
     current_files.get(mutation.path) == Some(recorded_hash) else {
     return None

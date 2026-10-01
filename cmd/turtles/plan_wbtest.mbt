@@ -113,3 +113,84 @@ test "split_args strips quotes and squeezes whitespace" {
     ["moonc", "build-package", "-i", "$MOON_HOME/lib/m.mi:m", "-pkg", "x"],
   )
 }
+
+///|
+test "record_line collects only leading positional sources" {
+  let builder = PlanBuilder::new()
+  builder.record_line(
+    "moonc build-package ./a/a.mbt ./a/extra.mbt -o ./_build/native/debug/test/a/a.core -pkg m/a -pkg-sources m/a:./a -doctest-only ./a/doc.mbt",
+  )
+  // The -doctest-only file is a flag *value* behind a `-` argument,
+  // never a positional input.
+  json_inspect(builder.raw_sources, content=["./a/a.mbt", "./a/extra.mbt"])
+  inspect(builder.build_package_lines, content="1")
+}
+
+///|
+test "normalize_plan_source resolves relative and absolute in-module paths" {
+  let root = "/root/mod"
+  assert_eq(normalize_plan_source(root, "./lib/a.mbt"), Some("lib/a.mbt"))
+  assert_eq(normalize_plan_source(root, "lib/a.mbt"), Some("lib/a.mbt"))
+  assert_eq(normalize_plan_source(root, "a.mbt"), Some("a.mbt"))
+  assert_eq(
+    normalize_plan_source(root, "/root/mod/lib/a.mbt"),
+    Some("lib/a.mbt"),
+  )
+  assert_eq(normalize_plan_source(root, "/root/mod/a.mbt"), Some("a.mbt"))
+  // Generated, vendored, external, and out-of-module sources drop out.
+  assert_eq(normalize_plan_source(root, "./_build/native/x.mbt"), None)
+  assert_eq(normalize_plan_source(root, ".mooncakes/dep/a.mbt"), None)
+  assert_eq(normalize_plan_source(root, "/root/other/a.mbt"), None)
+  assert_eq(normalize_plan_source(root, "../outside/a.mbt"), None)
+  assert_eq(normalize_plan_source(root, "$MOON_HOME/lib/a.mbt"), None)
+  assert_eq(normalize_plan_source(root, "./lib/a.mbti"), None)
+}
+
+///|
+test "active_sources unions per-backend source sets for --target all" {
+  let builder = PlanBuilder::new()
+  // A --target all dry run emits one line set per backend; a file
+  // compiled under any of them counts as active.
+  builder.record_line(
+    "moonc build-package ./common.mbt ./native_only.mbt -o ./_build/native/debug/test/m/m.core -pkg m/m -pkg-sources m/m:./ -target native",
+  )
+  builder.record_line(
+    "moonc build-package ./common.mbt ./js_only.mbt -o ./_build/js/debug/test/m/m.core -pkg m/m -pkg-sources m/m:./ -target js",
+  )
+  let sources = builder.active_sources("/mod")
+  let names = sources.keys().collect()
+  names.sort()
+  json_inspect(names, content=["common.mbt", "js_only.mbt", "native_only.mbt"])
+}
+
+///|
+test "partition_by_active_source keeps reuse aligned with its mutant" {
+  let m1 = mk_mutation("a.mbt", 0, 1, "+", "-")
+  let m2 = mk_mutation("idle.mbt", 2, 3, "<", ">")
+  let m3 = mk_mutation("b.mbt", 4, 5, "==", "!=")
+  let reuse : Array[MutationResult?] = [
+    Some({
+      mutation: m1,
+      outcome: Killed,
+      duration_ms: 0L,
+      reused: true,
+      packages: None,
+      kills: None,
+    }),
+    None,
+    None,
+  ]
+  let active : Map[String, Bool] = { "a.mbt": true, "b.mbt": true }
+  let (actives, active_reuse, inactive) = partition_by_active_source(
+    [m1, m2, m3],
+    reuse,
+    active,
+  )
+  json_inspect(actives.map(mutation => mutation.path), content=[
+    "a.mbt", "b.mbt",
+  ])
+  json_inspect(inactive.map(mutation => mutation.path), content=["idle.mbt"])
+  inspect(active_reuse.length(), content="2")
+  assert_true(active_reuse[0] is Some(_))
+  assert_true(active_reuse[1] is None)
+}

@@ -100,6 +100,22 @@ fn kill_counts(results : Array[MutationResult]) -> (JsonKillCounts, Int) {
 }
 
 ///|
+/// Sorted module-relative paths holding at least one target-inactive
+/// mutant — the report's `inactive_files`, and the console detail line.
+fn unique_sorted_paths(mutants : Array[Mutation]) -> Array[String] {
+  let seen : Map[String, Bool] = Map([])
+  for mutation in mutants {
+    seen[mutation.path] = true
+  }
+  let files : Array[String] = []
+  for file, _ in seen {
+    files.push(file)
+  }
+  files.sort()
+  files
+}
+
+///|
 /// Outcome tallies and score restricted to one visibility bucket,
 /// using the same killed-over-viable rule as the headline score.
 fn visibility_summary(
@@ -145,6 +161,7 @@ fn build_report(
   score : Double,
   regressions? : Array[String] = [],
   target? : String? = None,
+  inactive? : Array[Mutation] = [],
 ) -> JsonReport {
   let mutants : Array[JsonMutation] = []
   let mut reused = 0
@@ -161,11 +178,13 @@ fn build_report(
     skipped_files.push({ path: entry.path, error: entry.error, })
   }
   {
-    schema: 2,
+    schema: 3,
     module_path: root,
     turtles_version,
     moon_version,
     target,
+    inactive_mutants: inactive.length(),
+    inactive_files: unique_sorted_paths(inactive),
     baseline_duration_ms,
     baseline_check_ms: Some(baseline_check_ms),
     baseline_test_ms: Some(baseline_test_ms),

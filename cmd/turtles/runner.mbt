@@ -1,11 +1,9 @@
 ///|
-async fn run_moon_command(
-  root : String,
-  args : Array[String],
-  timeout_ms : Int,
-  group_kill : Bool,
-  target? : String? = None,
-) -> CommandResult {
+/// One place that turns a moon subcommand into argv: every `moon` turtles
+/// drives — baseline, mutant check/test, dry-run planning, and the future
+/// PBT analyses — goes through this so `--target` forwarding cannot drift
+/// between call sites.
+fn moon_args(args : Array[String], target : String?) -> Array[String] {
   let command_args = args.copy()
   match target {
     Some(selected) => {
@@ -14,6 +12,18 @@ async fn run_moon_command(
     }
     None => ()
   }
+  command_args
+}
+
+///|
+async fn run_moon_command(
+  root : String,
+  args : Array[String],
+  timeout_ms : Int,
+  group_kill : Bool,
+  target? : String? = None,
+) -> CommandResult {
+  let command_args = moon_args(args, target)
   // Nested moon output must not reach our own stdout: when turtles runs
   // inside `moon test`, subprocess output interleaves with the test driver
   // protocol and corrupts result parsing. The log lives next to the
@@ -402,7 +412,7 @@ async fn run_mutations(
   affected : Bool,
   reuse : Array[MutationResult?],
   target? : String? = None,
-) -> (Int64, Int64, Int64, Array[MutationResult], String) {
+) -> (Int64, Int64, Int64, Array[MutationResult], Array[Mutation], String) {
   let root = @fs.realpath(root)
   let temp = @fs.tmpdir(prefix="turtles")
   @async.with_task_group <| group => {
@@ -412,6 +422,73 @@ async fn run_mutations(
     let reference = path_join(temp, "reference")
     @fs.mkdir(reference, recursive=true)
     copy_tree(root, root, reference)
+    // One dry-run serves both consumers of Moon's plan: active-source
+    // discovery under an explicit --target, and the --affected package
+    // graph. The selected backend is forwarded to the dry-run itself, so
+    // both describe the same target.
+    let moon_plan : MoonPlan? = if affected || target is Some(_) {
+      Some(load_moon_plan(reference, target~)) catch {
+        error =>
+          match target {
+            // The active-source set is what keeps backend-inactive files
+            // out of the survivor set; a plan that cannot be read is a
+            // setup error, not a degraded run.
+            Some(_) => fail("cannot read the target-aware plan: \{error}")
+            None => {
+              println(
+                "warning: --affected disabled; cannot read test plan: \{error}",
+              )
+              None
+            }
+          }
+      }
+    } else {
+      None
+    }
+    let plan : TestPlan? = match moon_plan {
+      Some(moon_plan) =>
+        match moon_plan.test_plan {
+          Some(resolved) if affected => Some(resolved)
+          Some(_) => None
+          None =>
+            if affected {
+              println(
+                "warning: --affected disabled; dry-run plan has unresolved module-local imports",
+              )
+              None
+            } else {
+              None
+            }
+        }
+      None => None
+    }
+    // Partition: only mutants in files Moon compiles for the selected
+    // target are classified; the rest are reported target-inactive.
+    let (active_mutations, active_reuse, inactive) = match moon_plan {
+      Some(moon_plan) =>
+        match target {
+          Some(_) =>
+            partition_by_active_source(
+              mutations,
+              reuse,
+              moon_plan.active_sources,
+            )
+          None => (mutations, reuse, [])
+        }
+      None => (mutations, reuse, [])
+    }
+    match target {
+      Some(selected) => {
+        println(
+          "Target: \{selected} — \{active_mutations.length()} active, \{inactive.length()} target-inactive mutation(s)",
+        )
+        let inactive_files = unique_sorted_paths(inactive)
+        for file in inactive_files {
+          println("  target-inactive: \{file}")
+        }
+      }
+      None => ()
+    }
     let baseline = path_join(temp, "baseline")
     @fs.mkdir(baseline, recursive=true)
     copy_tree(reference, reference, baseline)
@@ -444,18 +521,6 @@ async fn run_mutations(
         )
       None => ()
     }
-    let plan : TestPlan? = if affected {
-      Some(load_test_plan(reference, target~)) catch {
-        error => {
-          println(
-            "warning: --affected disabled; cannot read test plan: \{error}",
-          )
-          None
-        }
-      }
-    } else {
-      None
-    }
     let classify = (workspace : String, mutation : Mutation) => {
       classify_mutant(
         workspace,
@@ -468,12 +533,15 @@ async fn run_mutations(
       )
     }
     let results = run_mutation_pool(
-      temp, reference, mutations, jobs, reuse, classify,
+      temp, reference, active_mutations, jobs, active_reuse, classify,
     )
     let scope = match plan {
       Some(_) => "affected"
       None => "module"
     }
-    (baseline_duration_ms, baseline_check_ms, baseline_test_ms, results, scope)
+    (
+      baseline_duration_ms, baseline_check_ms, baseline_test_ms, results, inactive,
+      scope,
+    )
   }
 }
